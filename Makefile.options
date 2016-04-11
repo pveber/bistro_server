@@ -11,7 +11,7 @@ SERVER_FILES := $(wildcard *.eliomi *.eliom)
 CLIENT_FILES := $(wildcard *.eliomi *.eliom)
 
 # OCamlfind packages for the server
-SERVER_PACKAGES := lwt.ppx js_of_ocaml.deriving.ppx bistro.engine core
+SERVER_PACKAGES := lwt.ppx js_of_ocaml.deriving.ppx bistro.engine bistro_client core
 # OCamlfind packages for the client
 CLIENT_PACKAGES := lwt.ppx js_of_ocaml.deriving.ppx js_of_ocaml.ppx
 
