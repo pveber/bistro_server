@@ -114,6 +114,11 @@ end
 
 module Exen = struct
   let wes = ref WES.empty
+
+  let add_wave w =
+    Db.Wave_table.set db w.Db.Wave.name w ;
+    wes := WES.add_wave !wes w ;
+    return ()
 end
 
 
@@ -138,9 +143,10 @@ module API = struct
     =
     let open Bistro_client_api in
     function
-    | Request_id () -> return ""
+    | Request_task () -> return None
     | I'm_alive _ -> return ()
-    | Post_wave _ -> return ()
+    | Post_wave w ->
+      Exen.add_wave w
 
   let request_handler = Bistro_client_api.{
     f = fun r ->
