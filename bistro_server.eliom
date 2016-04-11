@@ -30,90 +30,87 @@ end
 =
 struct
   type t = {
-    waves : Db.Wave.t list ;
+    waves : Db.Wave.t String.Map.t ;
     step_state : step_state String.Map.t ;
   }
-  and step_state = Started | Done | Failed
-  and dep_state =
-    | All_done
-    | One_failed
-    | One_running
-    | One_not_started of Bistro.Workflow.u
+  and step_state = Todo | Started | Done | Failed
   and step = Bistro.Workflow.step
 
   let empty = {
-    waves = [] ;
+    waves = String.Map.empty ;
     step_state = String.Map.empty
   }
 
-  let rec workflow_state wes = Bistro.Workflow.(
-    function
-    | Input _ -> Some Done
-    | Select (_, u, _) -> workflow_state wes u
-    | Step step ->
-      String.Map.find wes.step_state step.id
-  )
-
-  let classify_deps wes xs =
-    List.fold xs ~init:All_done ~f:(fun r u ->
-      let state_u = workflow_state wes u in
-      match r, state_u with
-      | All_done, Some Done -> All_done
-      | One_not_started _, _ -> r
-      | _, None -> One_not_started u
-      | One_running, _
-      | _, Some Started -> One_running
-      | One_failed, _
-      | _, Some Failed -> One_failed
-    )
-
-  let rec search_available_step wes =
+  let rec populate_state st =
     let open Bistro.Workflow in
     function
-    | Input _ -> None
-    | Select (_, u, _) -> search_available_step wes u
-    | Step s -> (
-        match String.Map.find wes.step_state s.id with
-        | None -> (
-            match classify_deps wes s.deps with
-            | All_done -> Some s
-            | One_failed | One_running -> None
-            | One_not_started u ->
-              search_available_step wes u
-          )
-        | Some _ -> None
-      )
-
-  let next wes =
-    let open Bistro.Workflow in
-    match
-      List.find_map wes.waves ~f:(fun wave ->
-        List.find_map wave.Db.Wave.targets ~f:(search_available_step wes)
-      )
-    with
-    | None -> wes, None
-    | Some u ->
-      { wes with
-        step_state = String.Map.add wes.step_state ~key:u.id ~data:Started },
-      Some u
+    | Input _ -> st
+    | Select (_, u, _) -> populate_state st u
+    | Step s as u ->
+      let st' = List.fold s.deps ~init:st ~f:populate_state in
+      if String.Map.mem st' s.id then st'
+      (* if [s] is already in [st'] then the info is more uptodate
+         than the contents of the bistro database *)
+      else
+        let state_s = if Db.in_cache db u then Done else Todo in
+        String.Map.add st' ~key:s.id ~data:state_s
 
   let add_wave wes w =
     let open Db.Wave in
-    { wes with
-      waves =
-        if List.exists wes.waves ~f:(fun { name } -> w.name = name)
-        then List.map wes.waves ~f:(fun ({ name } as w') ->
-          if name = w.name then w
-          else w'
+    { waves = String.Map.add wes.waves ~key:w.name ~data:w ;
+      step_state =
+        List.fold w.targets ~init:wes.step_state ~f:populate_state }
+
+  let rec workflow_state wes = Bistro.Workflow.(
+    function
+    | Input _ -> Done
+    | Select (_, u, _) -> workflow_state wes u
+    | Step step ->
+      String.Map.find_exn wes.step_state step.id
+  )
+
+  let rec search_available_steps wes =
+    let open Bistro.Workflow in
+    function
+    | Input _ -> []
+    | Select (_, u, _) -> search_available_steps wes u
+    | Step step ->
+      match String.Map.find_exn wes.step_state step.id with
+      | Done | Failed | Started -> []
+      | Todo ->
+        let available_in_deps =
+          List.fold step.deps ~init:[] ~f:(fun accu u ->
+            search_available_steps wes u @ accu
+          )
+        in
+        if available_in_deps = [] then [ step ]
+        else available_in_deps
+
+  let next wes =
+    let open Bistro.Workflow in
+    let available_steps =
+      String.Map.fold wes.waves ~init:[] ~f:(fun ~key ~data:wave accu ->
+        List.fold wave.Db.Wave.targets ~init:accu ~f:(fun accu u ->
+          search_available_steps wes u @ accu
         )
-        else w :: wes.waves }
+      )
+    in
+    match available_steps with
+    | [] -> wes, None
+    | step :: _ ->
+      { wes with
+        step_state = String.Map.add wes.step_state ~key:step.id ~data:Started },
+      Some step
 
 end
 
 (* Execution engine *)
 
 module Exen = struct
-  let wes = ref WES.empty
+  let wes =
+    ref (
+      Db.Wave_table.fold db ~init:WES.empty ~f:WES.add_wave
+    )
 
   let add_wave w =
     Db.Wave_table.set db w.Db.Wave.name w ;
