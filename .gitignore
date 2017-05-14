@@ -5,3 +5,7 @@ local
 _deps
 _client
 _server
+*.byte
+.ocamlinit
+.merlin
+_build
