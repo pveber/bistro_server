@@ -3,11 +3,7 @@ open Lwt
 open Cohttp
 open Cohttp_lwt_unix
 open Tyxml_html
-
-type app_specification = {
-  app_title : string ;
-}
-[@@deriving sexp]
+open Bistro_server_common
 
 let head t =
   head (title (pcdata t)) [

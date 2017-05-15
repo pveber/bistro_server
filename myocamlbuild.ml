@@ -13,11 +13,23 @@ let thread = ()
 
 let undash = String.map (function '-' -> '_' | c -> c)
 
+let common_lib =
+  Project.lib "bistro_server_common"
+    ~annot ~bin_annot ~g ~short_paths ~thread
+    ~install:(`Findlib "bistro_server.common")
+    ~dir:"lib/common"
+    ~style:`Basic
+    ~findlib_deps:[
+      "ppx_sexp_conv" ;
+      "sexplib"
+    ]
+
 let clientapp =
   let name = "bistro_client" in
   Project.app name
     ~annot ~bin_annot ~g ~short_paths ~thread ~no_check_prims:()
     ~file:(sprintf "app/%s_app.ml" (undash name))
+    ~internal_deps:[common_lib]
     ~findlib_deps:[
       "js_of_ocaml" ;
       "js_of_ocaml.ppx" ;
@@ -25,13 +37,14 @@ let clientapp =
     ]
 
 let lib =
-  let name = "bistroserver" in
+  let name = "bistro_server" in
   Project.lib name
     ~annot ~bin_annot ~g ~short_paths ~thread
     ~install:(`Findlib name)
     ~dir:"lib"
     ~style:`Basic
     ~ml_files:(`Add ["bistro_server_js.ml"])
+    ~internal_deps:[common_lib]
     ~findlib_deps:[
       "cohttp.lwt" ;
       "core" ;
@@ -46,7 +59,7 @@ let test1 =
     ~file:"app/test1.ml"
     ~internal_deps:[lib]
 
-let items = [ test1 ; clientapp ; lib ;  ]
+let items = [ test1 ; clientapp ; lib ; common_lib ]
 
 
 let () =
