@@ -1,11 +1,32 @@
 open Js_browser
 
-let start _ =
-  let host =
-    Window.location window
-    |> Location.host
+let ( >>= ) = Lwt.( >>= )
+let ( >>| ) = Lwt.( >|= )
+
+let http_request path =
+  let waiter, wakener = Lwt.wait () in
+  let uri = String.concat "" [
+      "http://" ;
+      window |> Window.location |> Location.host ;
+      "/" ;
+      String.concat "/" path ;
+    ]
   in
-  Window.alert window host
+  let xhr = XHR.create () in
+  XHR.set_onreadystatechange xhr (fun () ->
+      match XHR.ready_state xhr with
+      | XHR.Done -> Lwt.wakeup wakener (XHR.response_text xhr)
+      | _ -> ()
+    ) ;
+  XHR.open_ xhr "GET" uri ;
+  XHR.send xhr "" ;
+  waiter
+
+let start _ =
+  Lwt.async (fun () ->
+      http_request ["app_specification"] >>| fun spec ->
+      Window.alert window spec
+    )
 
 let _ =
   Window.set_onload window start
