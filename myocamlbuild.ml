@@ -34,6 +34,8 @@ let lib =
     ~ml_files:(`Add ["bistro_server_js.ml"])
     ~findlib_deps:[
       "cohttp.lwt" ;
+      "core" ;
+      "ppx_sexp_conv" ;
       "tyxml"
     ]
 
