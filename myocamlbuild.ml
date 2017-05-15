@@ -16,11 +16,12 @@ let undash = String.map (function '-' -> '_' | c -> c)
 let clientapp =
   let name = "bistro_client" in
   Project.app name
-    ~annot ~bin_annot ~g ~short_paths ~thread
+    ~annot ~bin_annot ~g ~short_paths ~thread ~no_check_prims:()
     ~file:(sprintf "app/%s_app.ml" (undash name))
     ~findlib_deps:[
       "js_of_ocaml" ;
       "js_of_ocaml.ppx" ;
+      "ocaml-vdom" ;
     ]
 
 let lib =
@@ -76,7 +77,7 @@ let () =
         ~deps:["app/bistro_client.byte"]
         Ocamlbuild_plugin.(fun env _ ->
            let arg = env "app/bistro_client.byte" in
-           let l = [A"js_of_ocaml" ; P arg] in
+           let l = [A"js_of_ocaml" ; A"+gen_js_api/ojs_runtime.js" ; P arg] in
            Cmd (S l)) ;
 
       build_static_file ".merlin" (fun () -> merlin_file items);

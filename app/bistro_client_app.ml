@@ -1,10 +1,7 @@
-module Html = Dom_html
-
-let js = Js.string
+open Js_browser
 
 let start _ =
-  Html.window##alert (js"GAME OVER") ;
-  Js._false
+  Window.alert window "Started"
 
 let _ =
-  Html.window##.onload := Html.handler start
+  Window.set_onload window start
