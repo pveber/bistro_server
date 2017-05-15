@@ -92,7 +92,7 @@ let () =
         ~deps:["app/bistro_client.byte"]
         Ocamlbuild_plugin.(fun env _ ->
            let arg = env "app/bistro_client.byte" in
-           let l = [A"js_of_ocaml" ; A"+gen_js_api/ojs_runtime.js" ; P arg] in
+           let l = [A"js_of_ocaml" ; A"+gen_js_api/ojs_runtime.js" ; A"+toplevel.js"; A"+weak.js" ; P arg] in
            Cmd (S l)) ;
 
       build_static_file ".merlin" (fun () -> merlin_file items);
