@@ -1,4 +1,6 @@
+open Sexplib.Std
 open Js_browser
+open Bistro_server_common
 
 let ( >>= ) = Lwt.( >>= )
 let ( >>| ) = Lwt.( >|= )
@@ -24,8 +26,11 @@ let http_request path =
 
 let start _ =
   Lwt.async (fun () ->
-      http_request ["app_specification"] >>| fun spec ->
-      Window.alert window spec
+      http_request ["app_specification"]
+      >>| Sexplib.Sexp.of_string
+      >>| app_specification_of_sexp
+      >>| fun spec ->
+      Window.alert window spec.app_title
     )
 
 let _ =
