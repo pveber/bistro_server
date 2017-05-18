@@ -31,6 +31,7 @@ let clientapp =
     ~file:(sprintf "app/%s_app.ml" (undash name))
     ~internal_deps:[common_lib]
     ~findlib_deps:[
+      "containers" ;
       "js_of_ocaml" ;
       "js_of_ocaml.ppx" ;
       "ocaml-vdom" ;

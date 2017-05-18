@@ -17,7 +17,7 @@ let head t =
 let response title contents =
   html
     (head title)
-    (body [ div ~a:[a_class ["container"]] contents ])
+    (body [])
 
 let render doc =
   let buf = Buffer.create 253 in
@@ -32,7 +32,13 @@ module Make(X : sig end) = struct
     app_title = "App title" ;
     app_form = {
       fields = [
-        ("a", Int_field None) ;
+        ("a", Int_field (Some 42)) ;
+        ("b", String_field None) ;
+        ("c", Form_field {
+            fields = [
+              ("d", String_field (Some "foobar")) ;
+            ]
+          }) ;
       ]
     }
   }
