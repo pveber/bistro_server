@@ -4,6 +4,7 @@ open Bistro_server_common
 module List = CCListLabels
 module Option = CCOpt
 
+let ( % ) f g x = g (f x)
 let ( >>= ) = Lwt.( >>= )
 let ( >>| ) = Lwt.( >|= )
 
@@ -47,14 +48,22 @@ and field_view =
   function
   | lab, Int_field value -> [
       label [text lab] ;
-      input
-        ~a:[attr "type" "number"]
-        Option.(to_list @@ map text @@ map string_of_int value) ;
+      (
+        let a =
+          List.cons_maybe
+            Option.(map (string_of_int % attr "value") value)
+            [attr "type" "number"]
+        in
+        input ~a []
+      ) ;
       br () ;
     ]
   | lab, String_field value -> [
       label [text lab] ;
-      input Option.(to_list @@ map text value) ;
+      (
+        let a = Option.(to_list (map (attr "value") value)) in
+        input ~a []
+      ) ;
       br () ;
     ]
   | lab, Form_field f -> [
