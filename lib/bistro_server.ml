@@ -7,10 +7,10 @@ open Bistro_server_common
 
 let head t =
   head (title (pcdata t)) [
-    link ~rel:[`Stylesheet] ~href:"http://netdna.bootstrapcdn.com/bootstrap/3.0.2/css/bootstrap.min.css" () ;
-    link ~rel:[`Stylesheet] ~href:"http://netdna.bootstrapcdn.com/bootstrap/3.0.2/css/bootstrap-theme.min.css" () ;
-    script ~a:[a_src "https://code.jquery.com/jquery.js"] (pcdata "") ;
-    script ~a:[a_src "http://netdna.bootstrapcdn.com/bootstrap/3.0.2/js/bootstrap.min.js"] (pcdata "") ;
+    (* link ~rel:[`Stylesheet] ~href:"http://netdna.bootstrapcdn.com/bootstrap/3.0.2/css/bootstrap.min.css" () ; *)
+    (* link ~rel:[`Stylesheet] ~href:"http://netdna.bootstrapcdn.com/bootstrap/3.0.2/css/bootstrap-theme.min.css" () ; *)
+    (* script ~a:[a_src "https://code.jquery.com/jquery.js"] (pcdata "") ; *)
+    (* script ~a:[a_src "http://netdna.bootstrapcdn.com/bootstrap/3.0.2/js/bootstrap.min.js"] (pcdata "") ; *)
     Unsafe.(node "script" ~a:[string_attrib "type" "text/javascript"] [ data Bistro_server_js.contents]) ;
   ]
 
@@ -41,7 +41,7 @@ module Make(X : sig end) = struct
     match meth, path with
     | `GET, [""] ->
       `OK,
-      response "Bistro Web Server" [ pcdata "form" ]
+      response "Bistro Web Server" []
       |> render
     | `GET, ["app_specification"] ->
       `OK, Sexp.to_string_hum (sexp_of_app_specification app_specification)
