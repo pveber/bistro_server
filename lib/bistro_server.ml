@@ -29,7 +29,12 @@ let render doc =
 module Make(X : sig end) = struct
 
   let app_specification = {
-    app_title = "App title"
+    app_title = "App title" ;
+    app_form = {
+      fields = [
+        ("a", Int_field None) ;
+      ]
+    }
   }
 
   let handler meth path =
