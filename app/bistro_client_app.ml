@@ -27,6 +27,8 @@ let http_request path =
   XHR.send xhr "" ;
   waiter
 
+let h2 ?a xs = Vdom.elt ?a "h2" xs
+
 let form ?a xs = Vdom.elt "form" ?a xs
 
 let legend l = Vdom.(elt "legend" [ text l ])
@@ -76,8 +78,10 @@ let update m () =
 let view spec =
   let open Vdom in
   div ~a:[attr "class" "container"] [
-    text spec.app_title ;
+    h2 [ text spec.app_title ] ;
+    br () ;
     form_view spec.app_form ;
+    text @@ Sexplib.Sexp.to_string_hum @@ sexp_of_form spec.app_form ;
   ]
 
 let main spec =
