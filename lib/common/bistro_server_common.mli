@@ -19,3 +19,4 @@ type app_specification = {
 }
 [@@deriving sexp]
 
+val form_value : form -> Sexplib.Type.t option

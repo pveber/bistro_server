@@ -1,4 +1,5 @@
 open Sexplib.Std
+module Option = CCOpt
 
 type form_value =
   | Int of int
@@ -21,3 +22,20 @@ type app_specification = {
 }
 [@@deriving sexp]
 
+let rec form_value { fields } =
+  let open Option in
+  let field (lab, value) =
+    field_value value >|= fun f ->
+    sexp_of_list CCFun.id [ sexp_of_string lab ; f ]
+  in
+  List.map field fields
+  |> sequence_l
+  >|= sexp_of_list CCFun.id
+
+and field_value =
+  let open Option in
+  function
+  | Int_field (Some i) -> return @@ sexp_of_int i
+  | String_field (Some s) -> return @@ sexp_of_string s
+  | Form_field f -> form_value f
+  | Int_field None | String_field None -> None

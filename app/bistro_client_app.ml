@@ -102,6 +102,7 @@ let view spec =
     br () ;
     form_view (fun x -> x) spec.app_form ;
     text @@ Sexplib.Sexp.to_string_hum @@ sexp_of_form spec.app_form ;
+    text @@ Sexplib.Sexp.to_string_hum @@ sexp_of_option CCFun.id @@ form_value spec.app_form ;
   ]
 
 let main spec =

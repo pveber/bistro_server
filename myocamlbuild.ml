@@ -20,6 +20,7 @@ let common_lib =
     ~dir:"lib/common"
     ~style:`Basic
     ~findlib_deps:[
+      "containers" ;
       "ppx_sexp_conv" ;
       "sexplib"
     ]
