@@ -26,21 +26,19 @@ let render doc =
   Buffer.contents buf
 
 
-module Make(X : sig end) = struct
+module type App = sig
+  type input
+  [@@deriving sexp]
+
+  val title : string
+  val form : form
+end
+
+module Make(App : App) = struct
 
   let app_specification = {
-    app_title = "App title" ;
-    app_form = {
-      fields = [
-        ("a", Int_field (Some 42)) ;
-        ("b", String_field None) ;
-        ("c", Form_field {
-            fields = [
-              ("d", String_field (Some "foobar")) ;
-            ]
-          }) ;
-      ]
-    }
+    app_title = App.title ;
+    app_form = App.form ;
   }
 
   let handler meth path =
