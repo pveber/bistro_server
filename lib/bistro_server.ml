@@ -10,19 +10,29 @@ let digest x =
   |> Digest.string
   |> Digest.to_hex
 
-let head t =
-  head (title (pcdata t)) [
+let head ~js t =
+  let app_js =
+    Unsafe.(
+      node "script"
+        ~a:[string_attrib "type" "text/javascript"]
+        [ data Bistro_server_js.contents]
+    )
+  in
+  let contents = List.concat [
+      if js then [ app_js ] else []
+    ]
+  in
+  head (title (pcdata t)) contents
+
     (* link ~rel:[`Stylesheet] ~href:"http://netdna.bootstrapcdn.com/bootstrap/3.0.2/css/bootstrap.min.css" () ; *)
     (* link ~rel:[`Stylesheet] ~href:"http://netdna.bootstrapcdn.com/bootstrap/3.0.2/css/bootstrap-theme.min.css" () ; *)
     (* script ~a:[a_src "https://code.jquery.com/jquery.js"] (pcdata "") ; *)
     (* script ~a:[a_src "http://netdna.bootstrapcdn.com/bootstrap/3.0.2/js/bootstrap.min.js"] (pcdata "") ; *)
-    Unsafe.(node "script" ~a:[string_attrib "type" "text/javascript"] [ data Bistro_server_js.contents]) ;
-  ]
 
-let response title contents =
+let html_page ?(js = true) title contents =
   html
-    (head title)
-    (body [])
+    (head ~js title)
+    (body contents)
 
 let render doc =
   let buf = Buffer.create 253 in
@@ -82,12 +92,24 @@ module Make(App : App) = struct
     Lwt.async (fun () -> build_process r) ;
     id
 
+
+  let run_list_summary runs =
+    let table =
+      table @@ List.map (String.Table.data runs) ~f:(fun r ->
+          tr [ td [a ~a:[a_href ("run/" ^ r.id)] [pcdata r.id]] ]
+        )
+    in
+    html_page ~js:false "Bistro Web Server: list of current runs" [
+      h2 [ pcdata "Current runs" ] ;
+      table ;
+    ]
+
   let handler meth path body =
     match meth, path with
     | `GET, [""] ->
       return (
         `OK,
-        response "Bistro Web Server" []
+        html_page "Bistro Web Server" []
         |> render
       )
 
@@ -97,6 +119,10 @@ module Make(App : App) = struct
         |> sexp_of_app_specification
         |> Sexp.to_string_hum
       in
+      return (`OK, body)
+
+    | `GET, "runs" :: ([] | "/" :: []) ->
+      let body = render (run_list_summary current_runs) in
       return (`OK, body)
 
     | `GET, "run" :: run_id :: _ -> (
