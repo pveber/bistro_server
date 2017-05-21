@@ -21,15 +21,17 @@ let string_of_meth = function
   | `GET -> "GET"
   | `POST -> "POST"
 
+let site_uri path =
+  String.concat "" [
+    "http://" ;
+    window |> Window.location |> Location.host ;
+    "/" ;
+    String.concat "/" path ;
+  ]
+
 let http_request meth path body =
   let waiter, wakener = Lwt.wait () in
-  let uri = String.concat "" [
-      "http://" ;
-      window |> Window.location |> Location.host ;
-      "/" ;
-      String.concat "/" path ;
-    ]
-  in
+  let uri = site_uri path in
   let xhr = XHR.create () in
   XHR.set_onreadystatechange xhr (fun () ->
       match XHR.ready_state xhr with
@@ -123,9 +125,7 @@ let update m = function
             meth = `POST ;
             path = ["run"] ;
             body = Sexplib.Sexp.to_string sexp ;
-            handler = fun s ->
-              Window.alert window s ;
-              `Noop
+            handler = fun s -> `Goto [ "run" ; s ]
           }
         ]
         in
@@ -133,7 +133,8 @@ let update m = function
       | None -> assert false (* FIXME *)
     )
 
-  | `Noop ->
+  | `Goto path ->
+    Location.assign (Window.location window) (site_uri path) ;
     Vdom.return m
 
 let view spec =
