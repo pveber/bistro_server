@@ -65,9 +65,14 @@ module Make(App : App) = struct
 
     | `POST, ["run"] ->
       Cohttp_lwt_body.to_string body >|= fun body ->
-      let form_value = App.input_of_sexp (Sexp.of_string body) in
-      let id = digest form_value in
-      `OK, id
+      (
+        try
+          let form_value = App.input_of_sexp (Sexp.of_string body) in
+          let id = digest form_value in
+          `OK, id
+        with Failure s ->
+          `Bad_request, s
+      )
 
     | _ ->
       return (`Not_found, "Not found")
