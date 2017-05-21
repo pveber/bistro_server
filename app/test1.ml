@@ -9,6 +9,7 @@ module X = struct
   }
   and c = {
     d : string ;
+    e : string ;
   }
   [@@deriving sexp]
 
@@ -21,6 +22,7 @@ module X = struct
       ("c", Form_field {
           fields = [
             ("d", String_field (Some "foobar")) ;
+            ("e", File_field None) ;
           ]
         }) ;
     ]

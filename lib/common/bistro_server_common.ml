@@ -4,6 +4,7 @@ module Option = CCOpt
 type form_value =
   | Int of int
   | String of string
+  | File of string
   | Record of (string * form_value) list
 [@@deriving sexp]
 
@@ -13,6 +14,7 @@ type form = {
 and field =
   | Int_field of int option
   | String_field of string option
+  | File_field of string option
   | Form_field of form
 [@@deriving sexp]
 
@@ -36,6 +38,9 @@ and field_value =
   let open Option in
   function
   | Int_field (Some i) -> return @@ sexp_of_int i
-  | String_field (Some s) -> return @@ sexp_of_string s
+  | String_field (Some s)
+  | File_field (Some s) -> return @@ sexp_of_string s
   | Form_field f -> form_value f
-  | Int_field None | String_field None -> None
+  | Int_field None
+  | File_field None
+  | String_field None -> None

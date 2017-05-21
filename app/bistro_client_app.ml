@@ -106,6 +106,21 @@ and field_view k lab =
       ) ;
       br () ;
     ]
+  | File_field value -> [
+      label [text lab] ;
+      (
+        let a =
+          List.cons_maybe
+            Option.(map (attr "value") value)
+            [
+              attr "type" "file" ;
+              onchange (fun s -> k (File_field (Some s))) ;
+            ]
+        in
+        input ~a []
+      ) ;
+      br () ;
+    ]
   | Form_field f ->
     let k x = k (Form_field x) in
     [ form_view_aux ~legend:lab k f ; br () ]

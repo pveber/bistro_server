@@ -1,6 +1,7 @@
 type form_value =
   | Int of int
   | String of string
+  | File of string
   | Record of (string * form_value) list
 [@@deriving sexp]
 
@@ -10,6 +11,7 @@ type form = {
 and field =
   | Int_field of int option
   | String_field of string option
+  | File_field of string option
   | Form_field of form
 [@@deriving sexp]
 
