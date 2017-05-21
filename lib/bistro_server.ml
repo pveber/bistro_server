@@ -41,10 +41,29 @@ end
 
 module Make(App : App) = struct
 
+  type run_state =
+    | In_progress
+    | Completed
+    | Errored
+
+  type run = {
+    id : string ;
+    input : App.input ;
+    state : run_state ;
+  }
+
   let app_specification = {
     app_title = App.title ;
     app_form = App.form ;
   }
+
+  let current_runs = String.Table.create ()
+
+  let new_run input =
+    let id = digest input in
+    let r = { id ; input ; state = In_progress } in
+    String.Table.set current_runs ~key:id ~data:r ;
+    id
 
   let handler meth path body =
     match meth, path with
@@ -67,8 +86,8 @@ module Make(App : App) = struct
       Cohttp_lwt_body.to_string body >|= fun body ->
       (
         try
-          let form_value = App.input_of_sexp (Sexp.of_string body) in
-          let id = digest form_value in
+          let input = App.input_of_sexp (Sexp.of_string body) in
+          let id = new_run input in
           `OK, id
         with Failure s ->
           `Bad_request, s
