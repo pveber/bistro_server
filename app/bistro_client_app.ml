@@ -27,6 +27,9 @@ let http_request path =
   XHR.send xhr "" ;
   waiter
 
+let button msg label =
+  Vdom.elt "button" ~a:[Vdom.onclick msg] [ Vdom.text label ]
+
 let h2 ?a xs = Vdom.elt ?a "h2" xs
 
 let form ?a xs = Vdom.elt "form" ?a xs
@@ -92,15 +95,20 @@ and field_view k lab =
     let k x = k (Form_field x) in
     [ form_view ~legend:lab k f ; br () ]
 
-let update m app_form =
-  { m with app_form }, Vdom.Cmd.Batch []
+let update m = function
+  | `Update_form app_form ->
+    { m with app_form }, Vdom.Cmd.Batch []
+
+  | `Run ->
+    m, Vdom.Cmd.Batch []
 
 let view spec =
   let open Vdom in
   div ~a:[attr "class" "container"] [
     h2 [ text spec.app_title ] ;
     br () ;
-    form_view (fun x -> x) spec.app_form ;
+    form_view (fun x -> `Update_form x) spec.app_form ;
+    button `Run "Run" ;
     text @@ Sexplib.Sexp.to_string_hum @@ sexp_of_form spec.app_form ;
     text @@ Sexplib.Sexp.to_string_hum @@ sexp_of_option CCFun.id @@ form_value spec.app_form ;
   ]
