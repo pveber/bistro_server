@@ -46,6 +46,7 @@ module Make(App : App) = struct
     | In_progress
     | Completed
     | Errored
+  [@@deriving sexp]
 
   type run = {
     id : string ;
@@ -78,6 +79,7 @@ module Make(App : App) = struct
     let id = digest input in
     let r = { id ; input ; state = In_progress ; repo = App.derive input } in
     String.Table.set current_runs ~key:id ~data:r ;
+    Lwt.async (fun () -> build_process r) ;
     id
 
   let handler meth path body =
@@ -96,6 +98,18 @@ module Make(App : App) = struct
         |> Sexp.to_string_hum
       in
       return (`OK, body)
+
+    | `GET, "run" :: run_id :: _ -> (
+        match String.Table.find current_runs run_id with
+        | None -> return (`Not_found, "Unknown run")
+        | Some run ->
+          let body =
+            run.state
+            |> sexp_of_run_state
+            |> Sexplib.Sexp.to_string
+          in
+      return (`OK, body)
+      )
 
     | `POST, ["run"] ->
       Cohttp_lwt_body.to_string body >|= fun body ->
