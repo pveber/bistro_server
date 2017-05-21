@@ -7,6 +7,7 @@ module type App = sig
 
   val title : string
   val form : form
+  val derive : input -> Bistro_repo.t
 end
 
 module Make(App : App) : sig

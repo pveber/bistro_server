@@ -1,4 +1,5 @@
 open Core.Std
+open Bistro.EDSL
 
 module X = struct
   type input = {
@@ -24,6 +25,18 @@ module X = struct
         }) ;
     ]
   }
+
+  let echo x =
+    workflow ~descr:"echo" [
+      cmd "echo" ~stdout:dest [ string x ]
+    ]
+
+  let derive x = Bistro_repo.[
+      [ "a" ] %> echo "a" ;
+      [ "b" ] %> echo "b" ;
+      [ "c" ; "d" ] %> echo "d" ;
+    ]
+
 end
 
 module Server = Bistro_server.Make(X)

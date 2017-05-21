@@ -37,6 +37,7 @@ module type App = sig
 
   val title : string
   val form : form
+  val derive : input -> Bistro_repo.t
 end
 
 module Make(App : App) = struct
@@ -50,6 +51,7 @@ module Make(App : App) = struct
     id : string ;
     input : App.input ;
     state : run_state ;
+    repo : Bistro_repo.t ;
   }
 
   let app_specification = {
@@ -59,9 +61,22 @@ module Make(App : App) = struct
 
   let current_runs = String.Table.create ()
 
+  let update_run_state id s =
+    String.Table.update current_runs id ~f:(function
+        | Some r -> { r with state = s }
+        | None -> assert false
+      )
+
+  let build_process run =
+    let outdir = Filename.concat "res" run.id in
+    let term = Bistro_repo.to_app ~outdir run.repo in
+    Bistro_app.create term >|= function
+    | Ok () -> update_run_state run.id Completed
+    | Error _ -> update_run_state run.id Errored
+
   let new_run input =
     let id = digest input in
-    let r = { id ; input ; state = In_progress } in
+    let r = { id ; input ; state = In_progress ; repo = App.derive input } in
     String.Table.set current_runs ~key:id ~data:r ;
     id
 
