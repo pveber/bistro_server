@@ -17,6 +17,14 @@ type 'a Vdom.Cmd.t +=
       handler : string -> 'a
     } -> 'a Vdom.Cmd.t
 
+module String_map = Map.Make(String)
+
+type model =
+  | Application_form of {
+      form : form ;
+      selected_files : File.t String_map.t
+    }
+
 let string_of_meth = function
   | `GET -> "GET"
   | `POST -> "POST"
@@ -67,15 +75,18 @@ let rec assoc_replace xs k v =
     if k = k' then (k, v) :: t
     else p :: assoc_replace t k v
 
-let rec form_view_aux ?legend k { fields } =
+let input_id_of_path p =
+  String.concat "." (List.rev p)
+
+let rec form_view_aux ?legend form_path { fields } =
   let f (label, field_kind) =
-    let k x = k { fields = assoc_replace fields label x } in
-    field_view k label field_kind
+    field_view (label :: form_path) label field_kind
   in
   form [ fieldset ?legend @@ List.flat_map fields ~f ]
 
-and field_view k lab =
+and field_view field_path lab =
   let open Vdom in
+  let id = input_id_of_path field_path in
   function
   | Int_field value -> [
       label [text lab] ;
@@ -84,8 +95,9 @@ and field_view k lab =
           List.cons_maybe
             Option.(map (string_of_int % attr "value") value)
             [
+              attr "id" id ;
               attr "type" "number" ;
-              oninput (fun i -> k (Int_field (Some (int_of_string i)))) ;
+              oninput (fun _ -> `Form_update field_path) ;
             ]
         in
         input ~a []
@@ -99,7 +111,8 @@ and field_view k lab =
           List.cons_maybe
             Option.(map (attr "value") value)
             [
-              oninput (fun s -> k (String_field (Some s))) ;
+              attr "id" id ;
+              oninput (fun _ -> `Form_update field_path) ;
             ]
         in
         input ~a []
@@ -113,8 +126,9 @@ and field_view k lab =
           List.cons_maybe
             Option.(map (attr "value") value)
             [
+              attr "id" id ;
               attr "type" "file" ;
-              onchange (fun s -> k (File_field (Some s))) ;
+              onchange (fun _ -> `Form_update field_path)
             ]
         in
         input ~a []
@@ -122,15 +136,51 @@ and field_view k lab =
       br () ;
     ]
   | Form_field f ->
-    let k x = k (Form_field x) in
-    [ form_view_aux ~legend:lab k f ; br () ]
+    [ form_view_aux ~legend:lab field_path f ; br () ]
 
 let form_view spec =
-  form_view_aux (fun x -> `Update_form x) spec
+  form_view_aux [] spec
+
+let get_elt_exn id =
+    match Document.get_element_by_id (Window.document window) id with
+    | None -> assert false
+    | Some elt -> elt
+
+let rec update_form { fields } id = function
+  | [] -> assert false
+  | h :: t ->
+    {
+      fields =
+        List.map fields ~f:(fun ((label, field) as p) ->
+            if label = h then (
+              label, update_field field id t
+            )
+            else p
+          )
+    }
+
+and update_field field id path =
+  let input = get_elt_exn id in
+  match field with
+  | String_field _ ->
+    let value = Element.value input in
+    String_field (Some value)
+
+  | Int_field _ ->
+    let value = Element.value input in
+    Int_field (Some (int_of_string value))
+
+  | File_field _ ->
+    let value = Element.value input in
+    File_field (Some value)
+
+  | Form_field form ->
+    Form_field (update_form form id path)
 
 let update m = function
-  | `Update_form app_form ->
-    Vdom.return { m with app_form }
+  | `Form_update path ->
+    let id = input_id_of_path path in
+    Vdom.return { m with app_form = update_form m.app_form id (List.rev path) }
 
   | `Run -> (
       match form_value m.app_form with
