@@ -10,6 +10,10 @@ let digest x =
   |> Digest.string
   |> Digest.to_hex
 
+let string_of_mime_type = function
+  | `Text_plain -> "text/plain"
+  | `Text_html -> "text/html"
+
 let head ~js t =
   let app_js =
     Unsafe.(
@@ -105,60 +109,59 @@ module Make(App : App) = struct
       table ;
     ]
 
+  let return_html p = return (`OK, render p, `Text_html)
+
+  let return_text t = return (`OK, t, `Text_plain)
+
+  let return_not_found msg =
+    return (`Not_found, msg, `Text_plain)
+
   let handler meth path body =
     match meth, path with
     | `GET, [""] ->
-      return (
-        `OK,
-        html_page "Bistro Web Server" []
-        |> render
-      )
+      return_html @@ html_page "Bistro Web Server" []
 
     | `GET, ["app_specification"] ->
-      let body =
-        app_specification
-        |> sexp_of_app_specification
-        |> Sexp.to_string_hum
-      in
-      return (`OK, body)
+      app_specification
+      |> sexp_of_app_specification
+      |> Sexp.to_string_hum
+      |> return_text
 
     | `GET, "runs" :: ([] | "/" :: []) ->
-      let body = render (run_list_summary current_runs) in
-      return (`OK, body)
+      return_html @@ run_list_summary current_runs
 
     | `GET, "run" :: run_id :: _ -> (
         match String.Table.find current_runs run_id with
-        | None -> return (`Not_found, "Unknown run")
+        | None -> return_not_found "Unknown run"
         | Some run ->
-          let body =
-            run.state
-            |> sexp_of_run_state
-            |> Sexplib.Sexp.to_string
-          in
-      return (`OK, body)
+          run.state
+          |> sexp_of_run_state
+          |> Sexplib.Sexp.to_string
+          |> return_text
       )
 
     | `POST, ["run"] ->
-      Cohttp_lwt_body.to_string body >|= fun body ->
+      Cohttp_lwt_body.to_string body >>= fun body ->
       (
         try
           let input = App.input_of_sexp (Sexp.of_string body) in
           let id = new_run input in
-          `OK, id
+          return_text id
         with Failure s ->
-          `Bad_request, s
+          return (`Bad_request, s, `Text_plain)
       )
 
     | _ ->
-      return (`Not_found, "Not found")
+      return_not_found "Not found"
 
   let server () =
     let callback _conn req body =
       let uri = Request.uri req in
       let path = uri |> Uri.path |> String.split ~on:'/' |> List.tl_exn in
       let meth = Request.meth req in
-      handler meth path body >>= fun (status, body) ->
-      Server.respond_string ~status ~body ()
+      handler meth path body >>= fun (status, body, mime) ->
+      let headers = Header.of_list ["Content-Type", string_of_mime_type mime] in
+      Server.respond_string ~status ~headers ~body ()
     in
     Server.make ~callback ()
 
