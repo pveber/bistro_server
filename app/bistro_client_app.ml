@@ -97,7 +97,7 @@ and field_view field_path lab =
             [
               attr "id" id ;
               attr "type" "number" ;
-              oninput (fun _ -> `Form_update field_path) ;
+              oninput (fun _ -> `Form_update (field_path, `Other)) ;
             ]
         in
         input ~a []
@@ -112,7 +112,7 @@ and field_view field_path lab =
             Option.(map (attr "value") value)
             [
               attr "id" id ;
-              oninput (fun _ -> `Form_update field_path) ;
+              oninput (fun _ -> `Form_update (field_path, `Other)) ;
             ]
         in
         input ~a []
@@ -128,7 +128,7 @@ and field_view field_path lab =
             [
               attr "id" id ;
               attr "type" "file" ;
-              onchange (fun _ -> `Form_update field_path)
+              onchange (fun _ -> `Form_update (field_path, `File))
             ]
         in
         input ~a []
@@ -146,50 +146,48 @@ let get_elt_exn id =
     | None -> assert false
     | Some elt -> elt
 
-let rec update_form { fields } selected_files id = function
+let rec update_form { fields } id = function
   | [] -> assert false
   | h :: t ->
-    let f ((label, field) as p) (form, selected_files) =
-      if label = h then (
-        let field, selected_files = update_field field selected_files id t in
-        (label, field) :: form, selected_files
-      )
-      else
-        p :: form, selected_files
+    let f ((label, field) as p) =
+      if label = h then (label, update_field field id t)
+      else p
     in
-    let fields, selected_files = List.fold_right f fields ([], selected_files) in
-    { fields }, selected_files
+    { fields = List.map ~f fields }
 
-and update_field field selected_files id path =
+and update_field field id path =
   let input = get_elt_exn id in
   match field with
   | String_field _ ->
     let value = Element.value input in
-    String_field (Some value),  selected_files
+    String_field (Some value)
 
   | Int_field _ ->
     let value = Element.value input in
-    Int_field (Some (int_of_string value)), selected_files
+    Int_field (Some (int_of_string value))
 
   | File_field _ ->
     let value = Element.value input in
-    let files = Element.files input in
-    let selected_files =
-      List.fold_left files ~init:selected_files ~f:(fun acc file ->
-          String_map.add (File.name file) file selected_files
-        )
-    in
-    File_field (Some value), selected_files
+    File_field (Some value)
 
   | Form_field form ->
-    let form, selected_files = update_form form selected_files id path in
-    Form_field form, selected_files
+    Form_field (update_form form id path)
+
+let update_selected_files selected_files id =
+  let input = get_elt_exn id in
+  let files = Element.files input in
+  List.fold_left files ~init:selected_files ~f:(fun acc file ->
+      String_map.add (File.name file) file selected_files
+    )
 
 let update m = function
-  | `Form_update path ->
+  | `Form_update (path, ty) ->
     let id = input_id_of_path path in
-    let form, selected_files =
-      update_form m.form m.selected_files id (List.rev path) in
+    let form = update_form m.form id (List.rev path) in
+    let selected_files = match ty with
+      | `File -> update_selected_files m.selected_files id
+      | `Other -> m.selected_files
+    in
     Vdom.return { m with form ; selected_files }
 
   | `Run -> (
