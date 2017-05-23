@@ -19,11 +19,11 @@ type 'a Vdom.Cmd.t +=
 
 module String_map = Map.Make(String)
 
-type model =
-  | Application_form of {
-      form : form ;
-      selected_files : File.t String_map.t
-    }
+type model = {
+  title : string ;
+  form : form ;
+  selected_files : File.t String_map.t
+}
 
 let string_of_meth = function
   | `GET -> "GET"
@@ -146,44 +146,54 @@ let get_elt_exn id =
     | None -> assert false
     | Some elt -> elt
 
-let rec update_form { fields } id = function
+let rec update_form { fields } selected_files id = function
   | [] -> assert false
   | h :: t ->
-    {
-      fields =
-        List.map fields ~f:(fun ((label, field) as p) ->
-            if label = h then (
-              label, update_field field id t
-            )
-            else p
-          )
-    }
+    let f ((label, field) as p) (form, selected_files) =
+      if label = h then (
+        let field, selected_files = update_field field selected_files id t in
+        (label, field) :: form, selected_files
+      )
+      else
+        p :: form, selected_files
+    in
+    let fields, selected_files = List.fold_right f fields ([], selected_files) in
+    { fields }, selected_files
 
-and update_field field id path =
+and update_field field selected_files id path =
   let input = get_elt_exn id in
   match field with
   | String_field _ ->
     let value = Element.value input in
-    String_field (Some value)
+    String_field (Some value),  selected_files
 
   | Int_field _ ->
     let value = Element.value input in
-    Int_field (Some (int_of_string value))
+    Int_field (Some (int_of_string value)), selected_files
 
   | File_field _ ->
     let value = Element.value input in
-    File_field (Some value)
+    let files = Element.files input in
+    let selected_files =
+      List.fold_left files ~init:selected_files ~f:(fun acc file ->
+          String_map.add (File.name file) file selected_files
+        )
+    in
+    File_field (Some value), selected_files
 
   | Form_field form ->
-    Form_field (update_form form id path)
+    let form, selected_files = update_form form selected_files id path in
+    Form_field form, selected_files
 
 let update m = function
   | `Form_update path ->
     let id = input_id_of_path path in
-    Vdom.return { m with app_form = update_form m.app_form id (List.rev path) }
+    let form, selected_files =
+      update_form m.form m.selected_files id (List.rev path) in
+    Vdom.return { m with form ; selected_files }
 
   | `Run -> (
-      match form_value m.app_form with
+      match form_value m.form with
       | Some sexp ->
         let c = [
           Http_request {
@@ -202,17 +212,20 @@ let update m = function
     Location.assign (Window.location window) (site_uri path) ;
     Vdom.return m
 
-let view spec =
+let view m =
   let open Vdom in
   div ~a:[attr "class" "container"] [
-    h2 [ text spec.app_title ] ;
+    h2 [ text m.title ] ;
     br () ;
-    form_view spec.app_form ;
+    form_view m.form ;
     button `Run "Run" ;
     br () ;
-    text @@ Sexplib.Sexp.to_string_hum @@ sexp_of_form spec.app_form ;
+    text @@ Sexplib.Sexp.to_string_hum @@ sexp_of_form m.form ;
     br () ;
-    text @@ Sexplib.Sexp.to_string_hum @@ sexp_of_option CCFun.id @@ form_value spec.app_form ;
+    text @@ Sexplib.Sexp.to_string_hum @@ sexp_of_option CCFun.id @@ form_value m.form ;
+    div @@ List.flat_map (String_map.bindings m.selected_files) ~f:(fun (k, _) ->
+        [ text k ; br () ]
+      )
   ]
 
 let cmd_handler = {
@@ -228,7 +241,10 @@ let cmd_handler = {
 }
 
 let main spec =
-  let init = spec, Vdom.Cmd.Batch [] in
+  let model = { form = spec.app_form ;
+                title = spec.app_title ;
+                selected_files = String_map.empty } in
+  let init = model, Vdom.Cmd.Batch [] in
   let app = Vdom.app ~init ~update ~view () in
   let env = Vdom_blit.(cmd cmd_handler) in
   Vdom_blit.run ~env app
