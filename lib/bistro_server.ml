@@ -19,7 +19,8 @@ let head ~js t =
     )
   in
   let contents = List.concat [
-      if js then [ app_js ] else []
+      [ meta ~a:[a_charset "utf-8"] () ] ;
+      if js then [ app_js ] else [] ;
     ]
   in
   head (title (pcdata t)) contents
