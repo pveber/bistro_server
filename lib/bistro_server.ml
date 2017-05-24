@@ -58,6 +58,7 @@ end
 module Make(App : App) = struct
 
   type run_state =
+    | Data_upload
     | In_progress
     | Completed
     | Errored
@@ -90,9 +91,9 @@ module Make(App : App) = struct
     | Ok () -> update_run_state run.id Completed
     | Error _ -> update_run_state run.id Errored
 
-  let new_run input =
+  let new_run { input ; files } =
     let id = digest input in
-    let r = { id ; input ; state = In_progress ; repo = App.derive input } in
+    let r = { id ; input ; state = Data_upload ; repo = App.derive input } in
     String.Table.set current_runs ~key:id ~data:r ;
     Lwt.async (fun () -> build_process r) ;
     id
@@ -144,8 +145,8 @@ module Make(App : App) = struct
       Cohttp_lwt_body.to_string body >>= fun body ->
       (
         try
-          let input = App.input_of_sexp (Sexp.of_string body) in
-          let id = new_run input in
+          let req = run_request_of_sexp App.input_of_sexp (Sexp.of_string body) in
+          let id = new_run req in
           return_text id
         with Failure s ->
           return (`Bad_request, s, `Text_plain)

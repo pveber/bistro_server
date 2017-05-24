@@ -175,10 +175,9 @@ and update_field field id path =
 
 let update_selected_files selected_files id =
   let input = get_elt_exn id in
-  let files = Element.files input in
-  List.fold_left files ~init:selected_files ~f:(fun acc file ->
-      String_map.add (File.name file) file selected_files
-    )
+  match Element.files input with
+  | [] -> String_map.remove id selected_files
+  | file :: _ -> String_map.add id file selected_files
 
 let update m = function
   | `Form_update (path, ty) ->
@@ -192,7 +191,18 @@ let update m = function
 
   | `Run -> (
       match form_value m.form with
-      | Some sexp ->
+      | Some value_sexp ->
+        let input_files = form_files m.form in
+        let input_file_descrs =
+          List.map input_files ~f:(fun fn_id ->
+              { input_file_id = fn_id ; input_file_md5 = "" }
+            )
+        in
+        let sexp = sexp_of_run_request CCFun.id {
+            input = value_sexp ;
+            files = input_file_descrs ;
+          }
+        in
         let c = [
           Http_request {
             meth = `POST ;

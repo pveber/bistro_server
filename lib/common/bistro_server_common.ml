@@ -1,12 +1,6 @@
 open Sexplib.Std
 module Option = CCOpt
-
-type form_value =
-  | Int of int
-  | String of string
-  | File of string
-  | Record of (string * form_value) list
-[@@deriving sexp]
+module List = CCListLabels
 
 type form = {
   fields : (string * field) list ;
@@ -21,6 +15,16 @@ and field =
 type app_specification = {
   app_title : string ;
   app_form : form ;
+}
+[@@deriving sexp]
+
+type 'a run_request = {
+  input : 'a ;
+  files : input_file_descr list ;
+}
+and input_file_descr = {
+  input_file_id : string ;
+  input_file_md5 : string ;
 }
 [@@deriving sexp]
 
@@ -44,3 +48,19 @@ and field_value =
   | Int_field None
   | File_field None
   | String_field None -> None
+
+
+let form_files form =
+  let rec traverse_form { fields } =
+    List.flat_map fields ~f:(fun (label, field) ->
+        traverse_field field
+      )
+
+  and traverse_field = function
+    | File_field (Some fn) -> [ fn ]
+    | Form_field form -> traverse_form form
+    | Int_field _ | String_field _
+    | File_field _ -> []
+
+  in
+  traverse_form form

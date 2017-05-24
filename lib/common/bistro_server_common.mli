@@ -1,10 +1,3 @@
-type form_value =
-  | Int of int
-  | String of string
-  | File of string
-  | Record of (string * form_value) list
-[@@deriving sexp]
-
 type form = {
   fields : (string * field) list ;
 }
@@ -21,4 +14,15 @@ type app_specification = {
 }
 [@@deriving sexp]
 
+type 'a run_request = {
+  input : 'a ;
+  files : input_file_descr list ;
+}
+and input_file_descr = {
+  input_file_id : string ;
+  input_file_md5 : string ;
+}
+[@@deriving sexp]
+
 val form_value : form -> Sexplib.Type.t option
+val form_files : form -> string list
