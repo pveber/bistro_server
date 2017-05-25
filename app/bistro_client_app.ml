@@ -173,8 +173,7 @@ and update_field field id path =
     Int_field (Some (int_of_string value))
 
   | File_field _ ->
-    let value = Element.value input in
-    File_field (Some value)
+    File_field (Some id)
 
   | Form_field form ->
     Form_field (update_form form id path)
@@ -215,7 +214,16 @@ let update m msg =
             meth = `POST ;
             path = ["run"] ;
             body = Sexplib.Sexp.to_string sexp ;
-            handler = fun s -> `Goto [ "run" ; s ]
+            handler = fun run_id ->
+              let state = Data_upload {
+                  title = f.title ;
+                  run_id ;
+                  files = List.map input_files ~f:(fun fn ->
+                      fn, String_map.find fn f.selected_files, `TODO
+                    ) ;
+                }
+              in
+              `Next state
           }
         ]
         in
@@ -223,7 +231,8 @@ let update m msg =
       | None -> assert false (* FIXME *)
     )
 
-  | _, `Goto path ->
+  | _, `Next state -> Vdom.return state
+  | _, `Goto_url path ->
     Location.assign (Window.location window) (site_uri path) ;
     Vdom.return m
 
