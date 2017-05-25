@@ -64,26 +64,10 @@ module Make(App : App) = struct
 
   type run_state =
     | Init
-    | Data_upload of {
-        needed : string list ;
-        started : string list ;
-        uploaded : string list ;
-        completed : unit Lwt.u ;
-        wait_for_completion : unit Lwt.t ;
-      }
-    | Repo_build of {
-        wait_for_completion : (unit, string) result Lwt.t ;
-      }
+    | Data_upload
+    | Repo_build
     | Completed
     | Errored
-
-  type showable_run_state = [
-    | `Init
-    | `Data_upload
-    | `Repo_build
-    | `Completed
-    | `Errored
-  ]
   [@@deriving sexp]
 
   type run = {
@@ -99,32 +83,31 @@ module Make(App : App) = struct
     app_form = App.form ;
   }
 
-  let showable_run_state = function
-    | Init -> `Init
-    | Data_upload _ -> `Data_upload
-    | Repo_build _ -> `Repo_build
-    | Completed -> `Completed
-    | Errored -> `Errored
-
-  module Run_table :
+  module State :
   sig
-    val create_entry : App.input run_request -> string
-    val get : string -> run option
-    val get_all : unit -> run list
-    val signal :
-      string ->
-      [ `Start
-      | `Started_upload of string (* file id *)
-      | `Completed_upload of string ] -> (* file id *)
-      (unit, [> `No_such_run_id]) Pervasives.result
+    val start_run : App.input run_request -> string
+    val get_run : string -> run option
+    val get_runs : unit -> run list
+
+    val accept_download :
+      run_id:string ->
+      file_id:string ->
+      (unit -> unit, string) result
   end
   =
   struct
     let runs = String.Table.create ()
 
-    let get id = String.Table.find runs id
+    module U = Hashtbl.Make(struct
+        include Tuple.Make(String)(String)
+        include Tuple.Hashable(String)(String)
+      end)
 
-    let get_all () = String.Table.data runs
+    let uploads = U.create ()
+
+    let get_run id = String.Table.find runs id
+
+    let get_runs () = String.Table.data runs
 
     let update_run_state id s =
       String.Table.update runs id ~f:(function
@@ -132,54 +115,21 @@ module Make(App : App) = struct
           | None -> assert false
         )
 
-    let start_build_process run =
-      let outdir = Filename.concat "res" run.id in
-      let term = Bistro_repo.to_app ~outdir run.repo in
-      let wait_for_completion = Bistro_app.create term in
-      Repo_build { wait_for_completion }
-
-    let update run evt =
-      match run.state, evt with
-      | Init, `Start -> (
-          match run.input_files with
-          | [] -> start_build_process run
-          | _ :: _ ->
-            let wait_for_completion, completed = Lwt.wait () in
-            Data_upload {
-              needed = List.map run.input_files ~f:(fun fn -> fn.input_file_id) ;
-              started = [] ;
-              uploaded = [] ;
-              wait_for_completion ;
-              completed ;
-            }
+    let accept_download ~run_id ~file_id =
+      let key = run_id, file_id in
+      match U.find uploads key with
+      | None -> Error "Unknown upload"
+      | Some (`Needed u) ->
+        U.set uploads ~key ~data:(`Started u) ;
+        Ok (
+          fun () ->
+            U.set uploads ~key ~data:`Completed ;
+            Lwt.wakeup u ()
         )
-      | Data_upload up, `Started_upload file_id ->
-        assert (List.mem up.needed file_id) ;
-        Data_upload {
-          up with needed = list_remove up.needed file_id ;
-                  started = file_id :: up.started ;
-        }
-      | Data_upload up, `Completed_upload file_id ->
-        assert (List.mem up.started file_id) ;
-        let started = list_remove up.started file_id in
-        if started = [] && up.needed = [] then
-          start_build_process run
-        else
-          Data_upload {
-            up with started ;
-                    uploaded = file_id :: up.uploaded ;
-          }
-      | _ -> assert false
+      | Some (`Started _) -> Error "Already started"
+      | Some `Completed -> Error "Already uploaded"
 
-    let signal id evt =
-      match String.Table.find runs id with
-      | None -> Pervasives.Error `No_such_run_id
-      | Some run ->
-        let new_state = update run evt in
-        update_run_state id new_state ;
-        Ok ()
-
-    let create_entry { input ; files } =
+    let start_run { input ; files } =
       let id = digest input in
       let r = {
         id ; input ; input_files = files ;
@@ -188,7 +138,23 @@ module Make(App : App) = struct
       }
       in
       String.Table.set runs ~key:id ~data:r ;
-      ignore (signal id `Start) ;
+      Lwt.async (fun () ->
+          update_run_state id Data_upload ;
+          List.map files ~f:(fun fn ->
+              let wait_for_upload, uploaded = Lwt.wait () in
+              U.set uploads
+                ~key:(id, fn.input_file_id)
+                ~data:(`Needed uploaded) ;
+              wait_for_upload
+            )
+          |> Lwt.join >>= fun () ->
+          update_run_state id Repo_build ;
+          let outdir = Filename.concat "res" r.id in
+          let term = Bistro_repo.to_app ~outdir r.repo in
+          Bistro_app.create term >|= function
+          | Ok () -> update_run_state id Completed
+          | Error _ -> update_run_state id Errored
+        ) ;
       id
   end
 
@@ -224,15 +190,14 @@ module Make(App : App) = struct
       |> return_text
 
     | `GET, "runs" :: ([] | "/" :: []) ->
-      return_html @@ run_list_summary @@ Run_table.get_all ()
+      return_html @@ run_list_summary @@ State.get_runs ()
 
     | `GET, "run" :: run_id :: _ -> (
-        match Run_table.get run_id with
+        match State.get_run run_id with
         | None -> return_not_found "Unknown run"
         | Some run ->
           run.state
-          |> showable_run_state
-          |> sexp_of_showable_run_state
+          |> sexp_of_run_state
           |> Sexplib.Sexp.to_string
           |> return_text
       )
@@ -242,32 +207,24 @@ module Make(App : App) = struct
       (
         try
           let req = run_request_of_sexp App.input_of_sexp (Sexp.of_string body) in
-          let id = Run_table.create_entry req in
+          let id = State.start_run req in
           return_text id
         with Failure s ->
           return (`Bad_request, s, `Text_plain)
       )
 
     | `POST, ["upload" ; run_id ; file_id ] -> (
-        match Run_table.get run_id with
-        | None -> return (`Bad_request, "Unknown run id", `Text_plain)
-        | Some { state = Data_upload up } ->
-          if List.mem up.needed file_id then (
-            let open Lwt_io in
-            ignore @@ Run_table.signal run_id (`Started_upload file_id) ;
-            let dir = Filename.concat "data" run_id in
-            let file = Filename.concat dir file_id in
-            Lwt_unix.mkdir dir 0o755 >>= fun () ->
-            with_file ~mode:output file @@ fun oc ->
-            Cohttp_lwt_body.write_body (write oc) body >>= fun () ->
-            ignore @@ Run_table.signal run_id (`Completed_upload file_id) ;
-            return_text ""
-          )
-          else
-            let msg = sprintf "%s is not needed for %s" file_id run_id in
-            return (`Bad_request, msg, `Text_plain)
-        | Some { state = (Init | Repo_build _ | Completed | Errored) } ->
-          let msg = sprintf "Not expecting any upload for run %s" run_id in
+        match State.accept_download ~run_id ~file_id with
+        | Ok notify_completion ->
+          let open Lwt_io in
+          let dir = Filename.concat "data" run_id in
+          let file = Filename.concat dir file_id in
+          Lwt_unix.mkdir dir 0o755 >>= fun () ->
+          with_file ~mode:output file @@ fun oc ->
+          Cohttp_lwt_body.write_body (write oc) body >>= fun () ->
+          notify_completion () ;
+          return_text ""
+        | Error msg ->
           return (`Bad_request, msg, `Text_plain)
       )
 
