@@ -1,3 +1,6 @@
+(* FIXME:
+   should create data directory at startup
+*)
 open Core.Std
 open Lwt
 open Cohttp
@@ -216,20 +219,26 @@ module Make(App : App) = struct
     | `POST, ["upload" ; run_id ; file_id ] -> (
         match State.accept_download ~run_id ~file_id with
         | Ok notify_completion ->
-          let open Lwt_io in
-          let dir = Filename.concat "data" run_id in
-          let file = Filename.concat dir file_id in
-          Lwt_unix.mkdir dir 0o755 >>= fun () ->
-          with_file ~mode:output file @@ fun oc ->
-          Cohttp_lwt_body.write_body (write oc) body >>= fun () ->
-          notify_completion () ;
-          return_text ""
+          Lwt.catch (fun () ->
+              let open Lwt_io in
+              let dir = Filename.concat "data" run_id in
+              let file = Filename.concat dir file_id in
+              Lwt_unix.mkdir dir 0o755 >>= fun () ->
+              with_file ~mode:output file @@ fun oc ->
+              Cohttp_lwt_body.write_body (write oc) body >>= fun () ->
+              notify_completion () ;
+              return_text ""
+            )
+            (fun exn ->
+               let msg = Exn.to_string exn in
+               return (`Internal_server_error, msg, `Text_plain)
+            )
         | Error msg ->
           return (`Bad_request, msg, `Text_plain)
       )
 
     | _ ->
-      return_not_found "Not found"
+      return_not_found "Page not found"
 
   let server () =
     let callback _conn req body =

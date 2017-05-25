@@ -8,13 +8,21 @@ let ( % ) f g x = g (f x)
 let ( >>= ) = Lwt.( >>= )
 let ( >>| ) = Lwt.( >|= )
 
+let read_file file =
+  let reader = FileReader.new_file_reader () in
+  let wait, notify = Lwt.wait () in
+  FileReader.read_as_text reader file ;
+  FileReader.set_onload reader (fun () ->
+      Lwt.wakeup notify (FileReader.result reader)
+    ) ;
+  wait
 
 type 'a Vdom.Cmd.t +=
   | Http_request : {
       meth : [ `GET | `POST ] ;
       path : string list ;
-      body : string ;
-      handler : string -> 'a
+      body : string Lwt.t ;
+      handler : int -> string -> 'a
     } -> 'a Vdom.Cmd.t
 
 module String_map = Map.Make(String)
@@ -28,8 +36,15 @@ type model =
   | Data_upload of {
       title : string ;
       run_id : string ;
-      files : (string * File.t * [`TODO | `INPROGRESS | `DONE]) list ;
+      files : (string * File.t * [`TODO | `INPROGRESS | `DONE | `FAILED]) list ;
     }
+
+let string_of_upload_status = function
+  | `TODO -> "TODO"
+  | `INPROGRESS -> "INPROGRESS"
+  | `DONE -> "DONE"
+  | `FAILED -> "FAILED"
+
 
 let string_of_meth = function
   | `GET -> "GET"
@@ -49,7 +64,7 @@ let http_request meth path body =
   let xhr = XHR.create () in
   XHR.set_onreadystatechange xhr (fun () ->
       match XHR.ready_state xhr with
-      | XHR.Done -> Lwt.wakeup wakener (XHR.response_text xhr)
+      | XHR.Done -> Lwt.wakeup wakener (XHR.status xhr, XHR.response_text xhr)
       | _ -> ()
     ) ;
   XHR.open_ xhr (string_of_meth meth) uri ;
@@ -73,6 +88,12 @@ let fieldset ?(a = []) ?legend xs =
 let br () = Vdom.elt "br" []
 
 let label ?a xs = Vdom.elt ?a "label" xs
+
+let table ?a xs = Vdom.elt ?a "table" xs
+
+let tr ?a xs = Vdom.elt ?a "tr" xs
+
+let td ?a xs = Vdom.elt ?a "td" xs
 
 let rec assoc_replace xs k v =
   match xs with
@@ -184,7 +205,24 @@ let update_selected_files selected_files id =
   | [] -> String_map.remove id selected_files
   | file :: _ -> String_map.add id file selected_files
 
-let update m msg =
+let upload_file ~run_id ~file_id file =
+  Http_request {
+    meth = `POST ;
+    path = ["upload" ; run_id ; file_id] ;
+    body = read_file file ;
+    handler = fun code _ ->
+      match code with
+      | 200 -> `Upload_completed (run_id, file_id)
+      | _ -> `Upload_failed (run_id, file_id)
+  }
+
+let update_file_upload_status files file_id status =
+  List.map files ~f:(fun ((id, file, _) as e) ->
+      if id = file_id then (id, file, status)
+      else e
+    )
+
+let rec update m msg =
   match m, msg with
   | Form f, `Form_update (path, ty) ->
     let id = input_id_of_path path in
@@ -195,10 +233,10 @@ let update m msg =
     in
     Vdom.return @@ Form { f with form ; selected_files }
 
-  | Form f, `Run -> (
-      match form_value f.form with
+  | Form form, `Run -> (
+      match form_value form.form with
       | Some value_sexp ->
-        let input_files = form_files f.form in
+        let input_files = form_files form.form in
         let input_file_descrs =
           List.map input_files ~f:(fun fn_id ->
               { input_file_id = fn_id ; input_file_md5 = "" }
@@ -213,17 +251,22 @@ let update m msg =
           Http_request {
             meth = `POST ;
             path = ["run"] ;
-            body = Sexplib.Sexp.to_string sexp ;
-            handler = fun run_id ->
-              let state = Data_upload {
-                  title = f.title ;
+            body = Lwt.return @@ Sexplib.Sexp.to_string sexp ;
+            handler = fun _ run_id -> (* FIXME: check for error *)
+              match input_files with
+              | [] -> `Goto_url ["run" ; run_id]
+              | h :: t ->
+                let f fn =
+                  fn, String_map.find fn form.selected_files, `TODO
+                in
+                let (fn1, file1, _) = f h in
+                let state = Data_upload {
+                  title = form.title ;
                   run_id ;
-                  files = List.map input_files ~f:(fun fn ->
-                      fn, String_map.find fn f.selected_files, `TODO
-                    ) ;
+                  files = (fn1, file1, `INPROGRESS) :: List.map t ~f ;
                 }
-              in
-              `Next state
+                in
+                `Next (state, [ upload_file ~run_id ~file_id:fn1 file1 ])
           }
         ]
         in
@@ -231,12 +274,29 @@ let update m msg =
       | None -> assert false (* FIXME *)
     )
 
-  | _, `Next state -> Vdom.return state
+  | Data_upload up, `Upload_completed (_, completed_file_id) -> (
+      let files = update_file_upload_status up.files completed_file_id `DONE in
+      match List.find files ~f:(fun (_, _, status) -> status = `TODO) with
+      | (file_id, file, _) ->
+        let files = update_file_upload_status files file_id `INPROGRESS in
+        let m = Data_upload { up with files } in
+        let c = [ upload_file ~run_id:up.run_id ~file_id file ] in
+        Vdom.return ~c m
+      | exception Not_found ->
+        update (Data_upload { up with files })  (`Goto_url ["run" ; up.run_id])
+    )
+
+  | Data_upload up, `Upload_failed (_, completed_file_id) -> (
+      let files = update_file_upload_status up.files completed_file_id `FAILED in
+      Vdom.return (Data_upload { up with files }) (* FIXME: try other uploads? *)
+    )
+  | _, `Next (state, c) -> Vdom.return ~c state
   | _, `Goto_url path ->
     Location.assign (Window.location window) (site_uri path) ;
     Vdom.return m
 
   | Data_upload _, (`Form_update _ | `Run) -> assert false
+  | Form _, (`Upload_completed _ | `Upload_failed _) -> assert false
 
 let view m =
   let open Vdom in
@@ -258,6 +318,11 @@ let view m =
     | Data_upload up -> [
         h2 [ text up.title ] ;
         br () ;
+        table @@ List.map up.files ~f:(fun (_, file, status) ->
+            tr [ td [ text (File.name file) ] ;
+                 td [ text (string_of_upload_status status) ] ]
+          )
+
       ]
   in
   div ~a:[attr "class" "container"] contents
@@ -267,8 +332,9 @@ let cmd_handler = {
     function
     | Http_request { meth ; path ; body ; handler } ->
       Lwt.async (fun () ->
-          http_request meth path body >>| fun body ->
-          Vdom_blit.Cmd.send_msg ctx (handler body)
+          body >>= fun body ->
+          http_request meth path body >>| fun (code, body) ->
+          Vdom_blit.Cmd.send_msg ctx (handler code body)
         ) ;
       true
     | _ -> false
@@ -288,7 +354,7 @@ let main spec =
 let onload _ =
   Lwt.async (fun () ->
       http_request `GET ["app_specification"] ""
-      >>| Sexplib.Sexp.of_string
+      >>| CCFun.compose snd Sexplib.Sexp.of_string
       >>| app_specification_of_sexp
       >>| main
     )
