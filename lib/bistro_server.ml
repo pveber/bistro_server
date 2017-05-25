@@ -16,7 +16,7 @@ let list_remove xs x =
   List.filter xs ~f:(( = ) x)
 
 let string_of_mime_type = function
-  | `Text_plain -> "text/plain"
+  | `Text_plain -> "text/plain; charset=utf-8"
   | `Text_html -> "text/html"
 
 let head ~js t =
