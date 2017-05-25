@@ -19,11 +19,12 @@ type 'a Vdom.Cmd.t +=
 
 module String_map = Map.Make(String)
 
-type model = {
-  title : string ;
-  form : form ;
-  selected_files : File.t String_map.t
-}
+type model =
+  | Form of {
+      title : string ;
+      form : form ;
+      selected_files : File.t String_map.t ;
+    }
 
 let string_of_meth = function
   | `GET -> "GET"
@@ -179,20 +180,21 @@ let update_selected_files selected_files id =
   | [] -> String_map.remove id selected_files
   | file :: _ -> String_map.add id file selected_files
 
-let update m = function
-  | `Form_update (path, ty) ->
+let update m msg =
+  match m, msg with
+  | Form f, `Form_update (path, ty) ->
     let id = input_id_of_path path in
-    let form = update_form m.form id (List.rev path) in
+    let form = update_form f.form id (List.rev path) in
     let selected_files = match ty with
-      | `File -> update_selected_files m.selected_files id
-      | `Other -> m.selected_files
+      | `File -> update_selected_files f.selected_files id
+      | `Other -> f.selected_files
     in
-    Vdom.return { m with form ; selected_files }
+    Vdom.return @@ Form { f with form ; selected_files }
 
-  | `Run -> (
-      match form_value m.form with
+  | Form f, `Run -> (
+      match form_value f.form with
       | Some value_sexp ->
-        let input_files = form_files m.form in
+        let input_files = form_files f.form in
         let input_file_descrs =
           List.map input_files ~f:(fun fn_id ->
               { input_file_id = fn_id ; input_file_md5 = "" }
@@ -216,25 +218,28 @@ let update m = function
       | None -> assert false (* FIXME *)
     )
 
-  | `Goto path ->
+  | _, `Goto path ->
     Location.assign (Window.location window) (site_uri path) ;
     Vdom.return m
 
 let view m =
   let open Vdom in
-  div ~a:[attr "class" "container"] [
-    h2 [ text m.title ] ;
-    br () ;
-    form_view m.form ;
-    button `Run "Run" ;
-    br () ;
-    text @@ Sexplib.Sexp.to_string_hum @@ sexp_of_form m.form ;
-    br () ;
-    text @@ Sexplib.Sexp.to_string_hum @@ sexp_of_option CCFun.id @@ form_value m.form ;
-    div @@ List.flat_map (String_map.bindings m.selected_files) ~f:(fun (k, _) ->
-        [ text k ; br () ]
-      )
-  ]
+  let contents = match m with
+    | Form m -> [
+        h2 [ text m.title ] ;
+        br () ;
+        form_view m.form ;
+        button `Run "Run" ;
+        br () ;
+        text @@ Sexplib.Sexp.to_string_hum @@ sexp_of_form m.form ;
+        br () ;
+        text @@ Sexplib.Sexp.to_string_hum @@ sexp_of_option CCFun.id @@ form_value m.form ;
+        div @@ List.flat_map (String_map.bindings m.selected_files) ~f:(fun (k, _) ->
+            [ text k ; br () ]
+          )
+      ]
+  in
+  div ~a:[attr "class" "container"] contents
 
 let cmd_handler = {
   Vdom_blit.Cmd.f = fun ctx ->
@@ -249,9 +254,9 @@ let cmd_handler = {
 }
 
 let main spec =
-  let model = { form = spec.app_form ;
-                title = spec.app_title ;
-                selected_files = String_map.empty } in
+  let model = Form { form = spec.app_form ;
+                     title = spec.app_title ;
+                     selected_files = String_map.empty } in
   let init = model, Vdom.Cmd.Batch [] in
   let app = Vdom.app ~init ~update ~view () in
   let env = Vdom_blit.(cmd cmd_handler) in
