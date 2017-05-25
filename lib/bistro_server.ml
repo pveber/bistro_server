@@ -12,6 +12,9 @@ let digest x =
   |> Digest.string
   |> Digest.to_hex
 
+let list_remove xs x =
+  List.filter xs ~f:(( = ) x)
+
 let string_of_mime_type = function
   | `Text_plain -> "text/plain"
   | `Text_html -> "text/html"
@@ -110,7 +113,9 @@ module Make(App : App) = struct
     val get_all : unit -> run list
     val signal :
       string ->
-      [`Start] ->
+      [ `Start
+      | `Started_upload of string (* file id *)
+      | `Completed_upload of string ] -> (* file id *)
       (unit, [> `No_such_run_id]) Pervasives.result
   end
   =
@@ -130,15 +135,14 @@ module Make(App : App) = struct
     let start_build_process run =
       let outdir = Filename.concat "res" run.id in
       let term = Bistro_repo.to_app ~outdir run.repo in
-      Bistro_app.create term
+      let wait_for_completion = Bistro_app.create term in
+      Repo_build { wait_for_completion }
 
     let update run evt =
       match run.state, evt with
       | Init, `Start -> (
           match run.input_files with
-          | [] -> Repo_build {
-              wait_for_completion = start_build_process run ;
-            }
+          | [] -> start_build_process run
           | _ :: _ ->
             let wait_for_completion, completed = Lwt.wait () in
             Data_upload {
@@ -149,6 +153,22 @@ module Make(App : App) = struct
               completed ;
             }
         )
+      | Data_upload up, `Started_upload file_id ->
+        assert (List.mem up.needed file_id) ;
+        Data_upload {
+          up with needed = list_remove up.needed file_id ;
+                  started = file_id :: up.started ;
+        }
+      | Data_upload up, `Completed_upload file_id ->
+        assert (List.mem up.started file_id) ;
+        let started = list_remove up.started file_id in
+        if started = [] && up.needed = [] then
+          start_build_process run
+        else
+          Data_upload {
+            up with started ;
+                    uploaded = file_id :: up.uploaded ;
+          }
       | _ -> assert false
 
     let signal id evt =
@@ -226,6 +246,29 @@ module Make(App : App) = struct
           return_text id
         with Failure s ->
           return (`Bad_request, s, `Text_plain)
+      )
+
+    | `POST, ["upload" ; run_id ; file_id ] -> (
+        match Run_table.get run_id with
+        | None -> return (`Bad_request, "Unknown run id", `Text_plain)
+        | Some { state = Data_upload up } ->
+          if List.mem up.needed file_id then (
+            let open Lwt_io in
+            ignore @@ Run_table.signal run_id (`Started_upload file_id) ;
+            let dir = Filename.concat "data" run_id in
+            let file = Filename.concat dir file_id in
+            Lwt_unix.mkdir dir 0o755 >>= fun () ->
+            with_file ~mode:output file @@ fun oc ->
+            Cohttp_lwt_body.write_body (write oc) body >>= fun () ->
+            ignore @@ Run_table.signal run_id (`Completed_upload file_id) ;
+            return_text ""
+          )
+          else
+            let msg = sprintf "%s is not needed for %s" file_id run_id in
+            return (`Bad_request, msg, `Text_plain)
+        | Some { state = (Init | Repo_build _ | Completed | Errored) } ->
+          let msg = sprintf "Not expecting any upload for run %s" run_id in
+          return (`Bad_request, msg, `Text_plain)
       )
 
     | _ ->
