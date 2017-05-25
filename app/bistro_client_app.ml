@@ -25,6 +25,11 @@ type model =
       form : form ;
       selected_files : File.t String_map.t ;
     }
+  | Data_upload of {
+      title : string ;
+      run_id : string ;
+      files : (string * File.t * [`TODO | `INPROGRESS | `DONE]) list ;
+    }
 
 let string_of_meth = function
   | `GET -> "GET"
@@ -222,6 +227,8 @@ let update m msg =
     Location.assign (Window.location window) (site_uri path) ;
     Vdom.return m
 
+  | Data_upload _, (`Form_update _ | `Run) -> assert false
+
 let view m =
   let open Vdom in
   let contents = match m with
@@ -237,6 +244,11 @@ let view m =
         div @@ List.flat_map (String_map.bindings m.selected_files) ~f:(fun (k, _) ->
             [ text k ; br () ]
           )
+      ]
+
+    | Data_upload up -> [
+        h2 [ text up.title ] ;
+        br () ;
       ]
   in
   div ~a:[attr "class" "container"] contents
