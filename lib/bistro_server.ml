@@ -5,6 +5,8 @@ open Cohttp_lwt_unix
 open Tyxml_html
 open Bistro_server_common
 
+type ('a, 'b) result = ('a, 'b) Pervasives.result = Ok of 'a | Error of 'b
+
 let digest x =
   Marshal.to_string x []
   |> Digest.string
@@ -58,15 +60,33 @@ end
 module Make(App : App) = struct
 
   type run_state =
-    | Data_upload
-    | In_progress
+    | Init
+    | Data_upload of {
+        needed : string list ;
+        started : string list ;
+        uploaded : string list ;
+        completed : unit Lwt.u ;
+        wait_for_completion : unit Lwt.t ;
+      }
+    | Repo_build of {
+        wait_for_completion : (unit, string) result Lwt.t ;
+      }
     | Completed
     | Errored
+
+  type showable_run_state = [
+    | `Init
+    | `Data_upload
+    | `Repo_build
+    | `Completed
+    | `Errored
+  ]
   [@@deriving sexp]
 
   type run = {
     id : string ;
     input : App.input ;
+    input_files : input_file_descr list ;
     state : run_state ;
     repo : Bistro_repo.t ;
   }
@@ -76,32 +96,87 @@ module Make(App : App) = struct
     app_form = App.form ;
   }
 
-  let current_runs = String.Table.create ()
+  let showable_run_state = function
+    | Init -> `Init
+    | Data_upload _ -> `Data_upload
+    | Repo_build _ -> `Repo_build
+    | Completed -> `Completed
+    | Errored -> `Errored
 
-  let update_run_state id s =
-    String.Table.update current_runs id ~f:(function
-        | Some r -> { r with state = s }
-        | None -> assert false
-      )
+  module Run_table :
+  sig
+    val create_entry : App.input run_request -> string
+    val get : string -> run option
+    val get_all : unit -> run list
+    val signal :
+      string ->
+      [`Start] ->
+      (unit, [> `No_such_run_id]) Pervasives.result
+  end
+  =
+  struct
+    let runs = String.Table.create ()
 
-  let build_process run =
-    let outdir = Filename.concat "res" run.id in
-    let term = Bistro_repo.to_app ~outdir run.repo in
-    Bistro_app.create term >|= function
-    | Ok () -> update_run_state run.id Completed
-    | Error _ -> update_run_state run.id Errored
+    let get id = String.Table.find runs id
 
-  let new_run { input ; files } =
-    let id = digest input in
-    let r = { id ; input ; state = Data_upload ; repo = App.derive input } in
-    String.Table.set current_runs ~key:id ~data:r ;
-    Lwt.async (fun () -> build_process r) ;
-    id
+    let get_all () = String.Table.data runs
+
+    let update_run_state id s =
+      String.Table.update runs id ~f:(function
+          | Some r -> { r with state = s }
+          | None -> assert false
+        )
+
+    let start_build_process run =
+      let outdir = Filename.concat "res" run.id in
+      let term = Bistro_repo.to_app ~outdir run.repo in
+      Bistro_app.create term
+
+    let update run evt =
+      match run.state, evt with
+      | Init, `Start -> (
+          match run.input_files with
+          | [] -> Repo_build {
+              wait_for_completion = start_build_process run ;
+            }
+          | _ :: _ ->
+            let wait_for_completion, completed = Lwt.wait () in
+            Data_upload {
+              needed = List.map run.input_files ~f:(fun fn -> fn.input_file_id) ;
+              started = [] ;
+              uploaded = [] ;
+              wait_for_completion ;
+              completed ;
+            }
+        )
+      | _ -> assert false
+
+    let signal id evt =
+      match String.Table.find runs id with
+      | None -> Pervasives.Error `No_such_run_id
+      | Some run ->
+        let new_state = update run evt in
+        update_run_state id new_state ;
+        Ok ()
+
+    let create_entry { input ; files } =
+      let id = digest input in
+      let r = {
+        id ; input ; input_files = files ;
+        state = Init ;
+        repo = App.derive input
+      }
+      in
+      String.Table.set runs ~key:id ~data:r ;
+      ignore (signal id `Start) ;
+      id
+  end
+
 
 
   let run_list_summary runs =
     let table =
-      table @@ List.map (String.Table.data runs) ~f:(fun r ->
+      table @@ List.map runs ~f:(fun r ->
           tr [ td [a ~a:[a_href ("run/" ^ r.id)] [pcdata r.id]] ]
         )
     in
@@ -129,14 +204,15 @@ module Make(App : App) = struct
       |> return_text
 
     | `GET, "runs" :: ([] | "/" :: []) ->
-      return_html @@ run_list_summary current_runs
+      return_html @@ run_list_summary @@ Run_table.get_all ()
 
     | `GET, "run" :: run_id :: _ -> (
-        match String.Table.find current_runs run_id with
+        match Run_table.get run_id with
         | None -> return_not_found "Unknown run"
         | Some run ->
           run.state
-          |> sexp_of_run_state
+          |> showable_run_state
+          |> sexp_of_showable_run_state
           |> Sexplib.Sexp.to_string
           |> return_text
       )
@@ -146,7 +222,7 @@ module Make(App : App) = struct
       (
         try
           let req = run_request_of_sexp App.input_of_sexp (Sexp.of_string body) in
-          let id = new_run req in
+          let id = Run_table.create_entry req in
           return_text id
         with Failure s ->
           return (`Bad_request, s, `Text_plain)
