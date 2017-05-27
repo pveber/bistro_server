@@ -48,6 +48,7 @@ let lib =
     ~ml_files:(`Add ["bistro_server_js.ml"])
     ~internal_deps:[common_lib]
     ~findlib_deps:[
+      "bistro.bioinfo" ;
       "bistro.utils" ;
       "cohttp.lwt" ;
       "core" ;

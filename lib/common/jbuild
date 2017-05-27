@@ -1,0 +1,7 @@
+(jbuild_version 1)
+
+(library
+ ((name bistro_server_common)
+  (public_name bistro_server.common)
+  (libraries (containers sexplib))
+  (preprocess (pps (ppx_sexp_conv)))))

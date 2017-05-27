@@ -1,7 +1,7 @@
 (* FIXME:
    should create data directory at startup
 *)
-open Core.Std
+open Core
 open Lwt
 open Cohttp
 open Cohttp_lwt_unix
