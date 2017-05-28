@@ -4,7 +4,14 @@
  ((name ppx_bistro_form)
   (public_name bistro_server.ppx)
   (kind ppx_deriver)
-  (libraries (ppx_core ppx_type_conv ppx_driver))
+  (modules (ppx_bistro_form))
+  (libraries (ppx_core ppx_type_conv ppx_metaquot ppx_driver))
   (preprocess (pps (ppx_metaquot)))
+  ))
+
+(executable
+ ((name ppx_bistro_form_test)
+  (libraries (ppx_bistro_form ocaml-migrate-parsetree))
+  (modules (ppx_bistro_form_test))
   ))
 

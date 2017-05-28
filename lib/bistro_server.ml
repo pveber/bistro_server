@@ -59,7 +59,7 @@ module type App = sig
   [@@deriving sexp, bistro_form]
 
   val title : string
-  val form : form
+  val input_bistro_form : form
   val derive : input -> Bistro_repo.t
 end
 
@@ -83,7 +83,7 @@ module Make(App : App) = struct
 
   let app_specification = {
     app_title = App.title ;
-    app_form = App.form ;
+    app_form = App.input_bistro_form ;
   }
 
   module State :

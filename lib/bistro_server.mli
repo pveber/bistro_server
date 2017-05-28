@@ -6,7 +6,7 @@ module type App = sig
   [@@deriving sexp, bistro_form]
 
   val title : string
-  val form : form
+  val input_bistro_form : form
   val derive : input -> Bistro_repo.t
 end
 

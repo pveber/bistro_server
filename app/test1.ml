@@ -11,22 +11,22 @@ module X = struct
     d : string ;
     e : string ;
   }
-  [@@deriving sexp]
+  [@@deriving sexp, bistro_form]
 
   let title = "App title"
 
-  let form = Bistro_server_common.{
-    fields = [
-      ("a", Int_field (Some 42)) ;
-      ("b", String_field None) ;
-      ("c", Form_field {
-          fields = [
-            ("d", String_field (Some "foobar")) ;
-            ("e", File_field None) ;
-          ]
-        }) ;
-    ]
-  }
+  (* let form = Bistro_server_common.{ *)
+  (*   fields = [ *)
+  (*     ("a", Int_field (Some 42)) ; *)
+  (*     ("b", String_field None) ; *)
+  (*     ("c", Form_field { *)
+  (*         fields = [ *)
+  (*           ("d", String_field (Some "foobar")) ; *)
+  (*           ("e", File_field None) ; *)
+  (*         ] *)
+  (*       }) ; *)
+  (*   ] *)
+  (* } *)
 
   let echo x =
     workflow ~descr:"echo" [
