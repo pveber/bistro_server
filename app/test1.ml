@@ -9,7 +9,7 @@ module X = struct
   }
   and c = {
     d : string ;
-    e : string ;
+    e : string [@file] ;
   }
   [@@deriving sexp, bistro_form]
 

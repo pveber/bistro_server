@@ -5,12 +5,25 @@ let ( @@ ) = Caml.( @@ )
 
 module Type_conv = Ppx_type_conv.Std.Type_conv
 
+module Attrs = struct
+  let file =
+    Attribute.declare "file"
+      Attribute.Context.label_declaration
+      Ast_pattern.(pstr nil)
+      `file
+end
+
 module Str = struct
   let rec form_expr_of_td loc td =
     match td.ptype_kind with
     | Ptype_record labels ->
-      let f { pld_name = { txt = label } ; pld_type = field_ty } =
-        [%expr [%e estring ~loc label], [%e field_expr_of_ty loc field_ty ]]
+      let f ({ pld_name = { txt = label } ;
+              pld_type = field_ty } as ld) =
+        let attrs = [
+          Attribute.get Attrs.file ld
+        ] |> List.filter_opt
+        in
+        [%expr [%e estring ~loc label], [%e field_expr_of_ty ~attrs loc field_ty ]]
       in
       let fields = List.map labels ~f in
       [%expr { Bistro_server_common.fields = [%e elist ~loc fields] } ]
@@ -18,12 +31,16 @@ module Str = struct
     | Ptype_variant _
     | Ptype_open -> failwith "only records can be derived to bistro forms"
 
-  and field_expr_of_ty loc { ptyp_desc } =
+  and field_expr_of_ty loc ~attrs { ptyp_desc } =
     match ptyp_desc with
     | Ptyp_constr ({ txt = ident }, _) -> (
         match ident with
         | Lident "int" -> [%expr Bistro_server_common.Int_field None]
-        | Lident "string" -> [%expr Bistro_server_common.String_field None]
+        | Lident "string" ->
+          if List.mem ~equal:Caml.( = ) attrs `file then
+            [%expr Bistro_server_common.File_field None]
+          else
+            [%expr Bistro_server_common.String_field None]
         | Lident x ->
           let fun_name = x ^ "_bistro_form" in
           [%expr Bistro_server_common.Form_field [%e evar ~loc fun_name]]
@@ -59,7 +76,9 @@ module Sig = struct
 end
 
 let str_type_decl =
-  Type_conv.Generator.make_noarg Str.form_of_tds ~attributes:[]
+  Type_conv.Generator.make_noarg Str.form_of_tds ~attributes:[
+    Attribute.T Attrs.file
+  ]
 
 let sig_type_decl =
   Type_conv.Generator.make_noarg Sig.form_of_tds ~attributes:[]
