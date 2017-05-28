@@ -5,6 +5,6 @@
   (public_name bistro_server.ppx)
   (kind ppx_deriver)
   (libraries (ppx_core ppx_type_conv ppx_driver))
-  (preprocess no_preprocessing)
+  (preprocess (pps (ppx_metaquot)))
   ))
 

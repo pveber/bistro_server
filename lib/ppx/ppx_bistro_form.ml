@@ -1,6 +1,8 @@
 open Ppx_core
 open Ast_builder.Default
 
+let ( @@ ) = Caml.( @@ )
+
 module Type_conv = Ppx_type_conv.Std.Type_conv
 
 module Str = struct
@@ -10,7 +12,7 @@ module Str = struct
     let pat = pvar ~loc "form" in
     let body = eint ~loc 42 in
     value_binding ~loc ~pat ~expr:body
-      
+
   let form_of_tds ~loc ~path (rec_flag, tds) =
     let bindings = List.map tds ~f:(form_of_td ~rec_flag) in
     pstr_value_list ~loc rec_flag bindings
@@ -18,7 +20,15 @@ module Str = struct
 end
 
 module Sig = struct
-  let form_of_tds ~loc ~path _ = []
+
+  let form_of_tds ~loc ~path (_, tds) =
+    List.map tds ~f:(fun td ->
+        let loc = td.ptype_loc in
+        psig_value ~loc @@ value_description ~loc
+          ~name:(Located.map (Fn.flip (^) "_bistro_form") td.ptype_name)
+          ~type_:[%type: Bistro_server_common.form]
+          ~prim:[]
+      )
 end
 
 let str_type_decl =
