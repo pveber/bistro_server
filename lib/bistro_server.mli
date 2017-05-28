@@ -3,7 +3,7 @@ open Bistro_server_common
 
 module type App = sig
   type input
-  [@@deriving sexp]
+  [@@deriving sexp, bistro_form]
 
   val title : string
   val form : form

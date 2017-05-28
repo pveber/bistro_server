@@ -1,0 +1,10 @@
+(jbuild_version 1)
+
+(library
+ ((name ppx_bistro_form)
+  (public_name bistro_server.ppx)
+  (kind ppx_deriver)
+  (libraries (ppx_core ppx_type_conv ppx_driver))
+  (preprocess no_preprocessing)
+  ))
+

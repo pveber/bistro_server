@@ -56,7 +56,7 @@ let render doc =
 
 module type App = sig
   type input
-  [@@deriving sexp]
+  [@@deriving sexp, bistro_form]
 
   val title : string
   val form : form
