@@ -19,6 +19,10 @@ let string_of_mime_type = function
   | `Text_plain -> "text/plain; charset=utf-8"
   | `Text_html -> "text/html"
 
+let string_of_path = function
+  | [] -> ""
+  | _ :: _ as xs -> List.reduce_exn xs ~f:Filename.concat
+
 let head ~js t =
   let app_js =
     Unsafe.(
@@ -149,7 +153,7 @@ module Make(App : App) = struct
             )
           |> Lwt.join >>= fun () ->
           update_run_state id Repo_build ;
-          let outdir = Filename.concat "res" r.id in
+          let outdir = string_of_path [ "res" ; r.id ] in
           let term = Bistro_repo.to_app ~outdir r.repo in
           Bistro_app.create term >|= function
           | Ok () -> update_run_state id Completed
@@ -171,39 +175,6 @@ module Make(App : App) = struct
       table ;
     ]
 
-  let run_state_page run =
-    let info = match run.state with
-      | Completed ->
-        let table =
-          Filename.concat "res" run.id
-          |> Lwt_unix.files_of_directory
-          |> Lwt_stream.to_list
-          >|= List.filter ~f:(function
-              | "."
-              | ".."
-              | "_files" -> false
-              | _ -> true
-            )
-          >|= List.sort ~cmp:String.compare
-          >|= List.map ~f:(fun fn ->
-              tr [ td [ pcdata fn ] ]
-            )
-          >|= table
-        in
-        table >|= fun x -> [ x ]
-      | Init
-      | Data_upload
-      | Repo_build
-      | Errored ->
-        run.state
-        |> sexp_of_run_state
-        |> Sexplib.Sexp.to_string_hum
-        |> (fun x -> [ pcdata x ])
-        |> Lwt.return
-    in
-    let title = sprintf "Bistro Web Server: run %s" run.id in
-    info >|= html_page ~js:false title
-
   let return_html p = return (`OK, render p, `Text_html)
 
   let return_text t = return (`OK, t, `Text_plain)
@@ -211,6 +182,53 @@ module Make(App : App) = struct
   let return_not_found msg =
     return (`Not_found, msg, `Text_plain)
 
+  let run_state_page run rel_path =
+    let title = sprintf "Bistro Web Server: run %s" run.id in
+    let html_page info = html_page ~js:false title info in
+    match run.state with
+    | Completed -> (
+        let path = string_of_path ("res" :: run.id :: rel_path) in
+        Lwt_unix.file_exists path >>= function
+        | false -> return_not_found "Path not found"
+        | true ->
+          Lwt_unix.stat path >>= fun stats ->
+          match stats.Lwt_unix.st_kind with
+          | Unix.S_DIR ->
+            let table =
+              path
+              |> Lwt_unix.files_of_directory
+              |> Lwt_stream.to_list
+              >|= List.filter ~f:(function
+                  | "."
+                  | "_files" -> false
+                  | ".." -> rel_path <> []
+                  | _ -> true
+                )
+              >|= List.sort ~cmp:String.compare
+              >|= List.map ~f:(fun fn ->
+                  let path = string_of_path @@ run.id :: rel_path @ [ fn ] in
+                  tr [ td [ a ~a:[a_href path] [ pcdata fn ] ] ]
+                )
+              >|= table
+            in
+            table
+            >|= (fun x -> [ x ])
+            >|= html_page
+            >>= return_html
+          | Unix.S_REG ->
+            return_text (In_channel.read_all path)
+          | _ -> assert false
+      )
+    | Init
+    | Data_upload
+    | Repo_build
+    | Errored ->
+      run.state
+      |> sexp_of_run_state
+      |> Sexplib.Sexp.to_string_hum
+      |> (fun x -> [ pcdata x ])
+      |> html_page
+      |> return_html
 
   let handler meth path body =
     match meth, path with
@@ -226,11 +244,10 @@ module Make(App : App) = struct
     | `GET, "runs" :: ([] | "/" :: []) ->
       return_html @@ run_list_summary @@ State.get_runs ()
 
-    | `GET, "run" :: run_id :: _ -> (
+    | `GET, "run" :: run_id :: path -> (
         match State.get_run run_id with
         | None -> return_not_found "Unknown run"
-        | Some run ->
-          run_state_page run >>= return_html
+        | Some run -> run_state_page run path
       )
 
     | `POST, ["run"] ->
