@@ -15,9 +15,6 @@ let digest x =
   |> Digest.string
   |> Digest.to_hex
 
-let list_remove xs x =
-  List.filter xs ~f:(( = ) x)
-
 let string_of_mime_type = function
   | `Text_plain -> "text/plain; charset=utf-8"
   | `Text_html -> "text/html"
@@ -174,12 +171,46 @@ module Make(App : App) = struct
       table ;
     ]
 
+  let run_state_page run =
+    let info = match run.state with
+      | Completed ->
+        let table =
+          Filename.concat "res" run.id
+          |> Lwt_unix.files_of_directory
+          |> Lwt_stream.to_list
+          >|= List.filter ~f:(function
+              | "."
+              | ".."
+              | "_files" -> false
+              | _ -> true
+            )
+          >|= List.sort ~cmp:String.compare
+          >|= List.map ~f:(fun fn ->
+              tr [ td [ pcdata fn ] ]
+            )
+          >|= table
+        in
+        table >|= fun x -> [ x ]
+      | Init
+      | Data_upload
+      | Repo_build
+      | Errored ->
+        run.state
+        |> sexp_of_run_state
+        |> Sexplib.Sexp.to_string_hum
+        |> (fun x -> [ pcdata x ])
+        |> Lwt.return
+    in
+    let title = sprintf "Bistro Web Server: run %s" run.id in
+    info >|= html_page ~js:false title
+
   let return_html p = return (`OK, render p, `Text_html)
 
   let return_text t = return (`OK, t, `Text_plain)
 
   let return_not_found msg =
     return (`Not_found, msg, `Text_plain)
+
 
   let handler meth path body =
     match meth, path with
@@ -199,10 +230,7 @@ module Make(App : App) = struct
         match State.get_run run_id with
         | None -> return_not_found "Unknown run"
         | Some run ->
-          run.state
-          |> sexp_of_run_state
-          |> Sexplib.Sexp.to_string
-          |> return_text
+          run_state_page run >>= return_html
       )
 
     | `POST, ["run"] ->
