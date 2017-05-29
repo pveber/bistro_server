@@ -11,8 +11,8 @@ module NGS_QC = struct
 
   let title = "NGS_QC"
 
-  let derive i = Bistro_repo.[
-      [ i.sample_id ] %> FastQC.run (input i.sample_file) ;
+  let derive ~data i = Bistro_repo.[
+      [ i.sample_id ] %> FastQC.run (input (data i.sample_file)) ;
     ]
 
 end

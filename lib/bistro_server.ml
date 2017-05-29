@@ -61,7 +61,10 @@ module type App = sig
 
   val title : string
   val input_bistro_form : form
-  val derive : input -> Bistro_repo.t
+  val derive :
+    data:(string -> string) ->
+    input ->
+    Bistro_repo.t
 end
 
 module Make(App : App) = struct
@@ -135,10 +138,11 @@ module Make(App : App) = struct
 
     let start_run { input ; files } =
       let id = digest input in
+      let data fn = string_of_path [ "data" ; id ; fn ] in
       let r = {
         id ; input ; input_files = files ;
         state = Init ;
-        repo = App.derive input
+        repo = App.derive ~data input
       }
       in
       String.Table.set runs ~key:id ~data:r ;
