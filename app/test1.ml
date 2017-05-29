@@ -33,7 +33,7 @@ module X = struct
       cmd "echo" ~stdout:dest [ string x ]
     ]
 
-  let derive x = Bistro_repo.[
+  let derive _ = Bistro_repo.[
       [ "a" ] %> echo "a" ;
       [ "b" ] %> echo "b" ;
       [ "c" ; "d" ] %> echo "d" ;

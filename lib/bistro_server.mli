@@ -1,4 +1,3 @@
-open Cohttp_lwt_unix
 open Bistro_server_common
 
 module type App = sig

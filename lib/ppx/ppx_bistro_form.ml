@@ -17,8 +17,8 @@ module Str = struct
   let rec form_expr_of_td loc td =
     match td.ptype_kind with
     | Ptype_record labels ->
-      let f ({ pld_name = { txt = label } ;
-              pld_type = field_ty } as ld) =
+      let f ({ pld_name = { txt = label ; _ } ;
+              pld_type = field_ty ; _ } as ld) =
         let attrs = [
           Attribute.get Attrs.file ld
         ] |> List.filter_opt
@@ -31,9 +31,9 @@ module Str = struct
     | Ptype_variant _
     | Ptype_open -> failwith "only records can be derived to bistro forms"
 
-  and field_expr_of_ty loc ~attrs { ptyp_desc } =
+  and field_expr_of_ty loc ~attrs { ptyp_desc ; _ } =
     match ptyp_desc with
-    | Ptyp_constr ({ txt = ident }, _) -> (
+    | Ptyp_constr ({ txt = ident ; _ }, _) -> (
         match ident with
         | Lident "int" -> [%expr Bistro_server_common.Int_field None]
         | Lident "string" ->
@@ -49,7 +49,7 @@ module Str = struct
 
     | _ -> failwith "Unsupported field type for bistro forms"
 
-  let form_of_td td ~rec_flag =
+  let form_of_td td =
     let td = name_type_params_in_td td in
     let ty_name = td.ptype_name.txt in
     let loc = td.ptype_loc in
@@ -57,15 +57,15 @@ module Str = struct
     let body = form_expr_of_td loc td in
     value_binding ~loc ~pat ~expr:body
 
-  let form_of_tds ~loc ~path (rec_flag, tds) =
-    let bindings = List.map tds ~f:(form_of_td ~rec_flag) in
+  let form_of_tds ~loc ~path:_ (rec_flag, tds) =
+    let bindings = List.map tds ~f:form_of_td in
     pstr_value_list ~loc rec_flag bindings
 
 end
 
 module Sig = struct
 
-  let form_of_tds ~loc ~path (_, tds) =
+  let form_of_tds ~loc:_ ~path:_ (_, tds) =
     List.map tds ~f:(fun td ->
         let loc = td.ptype_loc in
         psig_value ~loc @@ value_description ~loc
@@ -83,4 +83,4 @@ let str_type_decl =
 let sig_type_decl =
   Type_conv.Generator.make_noarg Sig.form_of_tds ~attributes:[]
 
-let bistro_form = Type_conv.add "bistro_form" ~str_type_decl ~sig_type_decl
+let _bistro_form = Type_conv.add "bistro_form" ~str_type_decl ~sig_type_decl
