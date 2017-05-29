@@ -71,7 +71,7 @@ module Make(App : App) = struct
     | Data_upload
     | Repo_build
     | Completed
-    | Errored
+    | Errored of string
   [@@deriving sexp]
 
   type run = {
@@ -157,7 +157,7 @@ module Make(App : App) = struct
           let term = Bistro_repo.to_app ~outdir r.repo in
           Bistro_app.create term >|= function
           | Ok () -> update_run_state id Completed
-          | Error _ -> update_run_state id Errored
+          | Error msg -> update_run_state id (Errored msg)
         ) ;
       id
   end
@@ -221,14 +221,15 @@ module Make(App : App) = struct
       )
     | Init
     | Data_upload
-    | Repo_build
-    | Errored ->
+    | Repo_build ->
       run.state
       |> sexp_of_run_state
       |> Sexplib.Sexp.to_string_hum
       |> (fun x -> [ pcdata x ])
       |> html_page
       |> return_html
+    | Errored msg ->
+      return_text msg
 
   let handler meth path body =
     match meth, path with
