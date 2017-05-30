@@ -210,7 +210,7 @@ module Make(App : App) = struct
                 )
               >|= List.sort ~cmp:String.compare
               >|= List.map ~f:(fun fn ->
-                  let path = string_of_path @@ run.id :: rel_path @ [ fn ] in
+                  let path = string_of_path @@ "/run" :: run.id :: rel_path @ [ fn ] in
                   tr [ td [ a ~a:[a_href path] [ pcdata fn ] ] ]
                 )
               >|= table
