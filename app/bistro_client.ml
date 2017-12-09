@@ -71,8 +71,8 @@ let http_request meth path body =
   XHR.send xhr body ;
   waiter
 
-let button msg label =
-  Vdom.elt "button" ~a:[Vdom.onclick msg] [ Vdom.text label ]
+let button ?(a = []) msg label =
+  Vdom.elt "button" ~a:(Vdom.onclick msg :: a) [ Vdom.text label ]
 
 let h2 ?a xs = Vdom.elt ?a "h2" xs
 
@@ -105,23 +105,36 @@ let rec assoc_replace xs k v =
 let input_id_of_path p =
   String.concat "." (List.rev p)
 
-let rec form_view_aux ?legend form_path { fields } =
+let rec form_view_aux ?(root = false) ?legend form_path { fields } =
   let f (label, field_kind) =
     field_view (label :: form_path) label field_kind
   in
-  form [ fieldset ?legend @@ List.flat_map fields ~f ]
+  form Vdom.[
+    fieldset ?legend @@ List.map fields ~f ;
+    if root then
+      div []
+    else
+      div []
+  ]
 
-and field_view field_path lab =
+and field_view field_path lab field =
+  let open Vdom in
+  div ~a:[attr "class" "form-group"] (
+    field_view_aux field_path lab field
+  )
+
+and field_view_aux field_path lab =
   let open Vdom in
   let id = input_id_of_path field_path in
   function
   | Int_field value -> [
-      label [text lab] ;
+      label ~a:[attr "for" id] [text lab] ;
       (
         let a =
           List.cons_maybe
             Option.(map (string_of_int % attr "value") value)
             [
+              attr "class" "form-control" ;
               attr "id" id ;
               attr "type" "number" ;
               oninput (fun _ -> `Form_update (field_path, `Other)) ;
@@ -129,30 +142,30 @@ and field_view field_path lab =
         in
         input ~a []
       ) ;
-      br () ;
     ]
   | String_field value -> [
-      label [text lab] ;
+      label ~a:[attr "for" id] [text lab] ;
       (
         let a =
           List.cons_maybe
             Option.(map (attr "value") value)
             [
+              attr "class" "form-control" ;
               attr "id" id ;
               oninput (fun _ -> `Form_update (field_path, `Other)) ;
             ]
         in
         input ~a []
       ) ;
-      br () ;
     ]
   | File_field value -> [
-      label [text lab] ;
+      label ~a:[attr "for" id] [text lab] ;
       (
         let a =
           List.cons_maybe
             Option.(map (attr "value") value)
             [
+              attr "class" "form-control" ;
               attr "id" id ;
               attr "type" "file" ;
               onchange (fun _ -> `Form_update (field_path, `File))
@@ -160,13 +173,12 @@ and field_view field_path lab =
         in
         input ~a []
       ) ;
-      br () ;
     ]
   | Form_field f ->
-    [ form_view_aux ~legend:lab field_path f ; br () ]
+    [ form_view_aux ~legend:lab field_path f ]
 
 let form_view spec =
-  form_view_aux [] spec
+  form_view_aux ~root:true [] spec
 
 let get_elt_exn id =
     match Document.get_element_by_id (Window.document window) id with
@@ -305,14 +317,16 @@ let view m =
         h2 [ text m.title ] ;
         br () ;
         form_view m.form ;
-        button `Run "Run" ;
-        br () ;
-        text @@ Sexplib.Sexp.to_string_hum @@ sexp_of_form m.form ;
-        br () ;
-        text @@ Sexplib.Sexp.to_string_hum @@ sexp_of_option CCFun.id @@ form_value m.form ;
-        div @@ List.flat_map (String_map.bindings m.selected_files) ~f:(fun (k, _) ->
-            [ text k ; br () ]
-          )
+      button ~a:[attr "class" "btn btn-primary"] `Run "Run"
+        
+        (* FIXME: debugging stuff *)
+        (* br () ; *)
+        (* text @@ Sexplib.Sexp.to_string_hum @@ sexp_of_form m.form ; *)
+        (* br () ; *)
+        (* text @@ Sexplib.Sexp.to_string_hum @@ sexp_of_option CCFun.id @@ form_value m.form ; *)
+        (* div @@ List.flat_map (String_map.bindings m.selected_files) ~f:(fun (k, _) -> *)
+        (*     [ text k ; br () ] *)
+        (*   ) *)
       ]
 
     | Data_upload up -> [

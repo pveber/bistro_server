@@ -35,19 +35,21 @@ let head ~js t =
   let contents = List.concat [
       [ meta ~a:[a_charset "utf-8"] () ] ;
       if js then [ app_js ] else [] ;
+      [
+        link ~rel:[`Stylesheet] ~href:"https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0-beta.2/css/bootstrap.min.css" () ;
+        script ~a:[a_src "https://code.jquery.com/jquery-3.2.1.slim.min.js"] (pcdata "") ;
+        script ~a:[a_src "https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.12.3/umd/popper.min.js"] (pcdata "") ;
+        script ~a:[a_src "https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0-beta.2/js/bootstrap.min.js"] (pcdata "") ;
+      ] ;
     ]
   in
   head (title (pcdata t)) contents
 
-    (* link ~rel:[`Stylesheet] ~href:"http://netdna.bootstrapcdn.com/bootstrap/3.0.2/css/bootstrap.min.css" () ; *)
-    (* link ~rel:[`Stylesheet] ~href:"http://netdna.bootstrapcdn.com/bootstrap/3.0.2/css/bootstrap-theme.min.css" () ; *)
-    (* script ~a:[a_src "https://code.jquery.com/jquery.js"] (pcdata "") ; *)
-    (* script ~a:[a_src "http://netdna.bootstrapcdn.com/bootstrap/3.0.2/js/bootstrap.min.js"] (pcdata "") ; *)
 
 let html_page ?(js = true) title contents =
   html
     (head ~js title)
-    (body contents)
+    (body [div ~a:[a_class ["container"]] contents])
 
 let render doc =
   let buf = Buffer.create 253 in
