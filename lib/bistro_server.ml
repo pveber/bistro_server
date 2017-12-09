@@ -56,6 +56,36 @@ let render doc =
   Buffer.contents buf
 
 
+type response = {
+  status : Code.status_code ;
+  headers : Header.t ;
+  body : string ;
+}
+
+let response ?(headers = []) status mime_type body =
+  let headers =
+    ("Content-Type", string_of_mime_type mime_type)
+    :: headers
+    |> Header.of_list
+  in
+  { status ; headers ; body }
+
+let return_html p =
+  return (response `OK `Text_html (render p))
+
+let return_text t =
+  return (response `OK `Text_plain t)
+
+let return_not_found msg =
+  return (response `Not_found `Text_plain msg)
+
+let return_file mime_type path =
+  if Sys.file_exists path = `Yes then
+    let contents = In_channel.read_all path in
+    return (response `OK mime_type contents)
+  else
+    return_not_found (sprintf "File %s does not exist" path)
+
 module type App = sig
   type input
   [@@deriving sexp, bistro_form]
@@ -180,16 +210,9 @@ module Make(App : App) = struct
       table ;
     ]
 
-  let return_html p = return (`OK, render p, `Text_html)
-
-  let return_text t = return (`OK, t, `Text_plain)
-
-  let return_not_found msg =
-    return (`Not_found, msg, `Text_plain)
-
   let file_browser_page run rel_path =
-  let title = sprintf "Bistro Web Server: run %s" run.id in
-  let html_page info = html_page ~js:false title info in
+    let title = sprintf "Bistro Web Server: run %s" run.id in
+    let html_page info = html_page ~js:false title info in
     let path = string_of_path ("res" :: run.id :: rel_path) in
     Lwt_unix.file_exists path >>= function
     | false -> return_not_found "Path not found"
@@ -219,12 +242,12 @@ module Make(App : App) = struct
         >|= html_page
         >>= return_html
       | Unix.S_REG -> (
-          let contents = In_channel.read_all path in
-          match snd (Filename.split_extension path) with
-          | Some "html" ->
-            return (`OK, contents, `Text_html)
-          | _ ->
-            return_text contents
+          let mime_type =
+            match snd (Filename.split_extension path) with
+            | Some "html" -> `Text_html
+            | _ -> `Text_plain
+          in
+          return_file mime_type path
         )
       | _ -> assert false
 
@@ -273,7 +296,7 @@ module Make(App : App) = struct
           let id = State.start_run req in
           return_text id
         with Failure s ->
-          return (`Bad_request, s, `Text_plain)
+          return (response `Bad_request `Text_plain s)
       )
 
     | `POST, ["upload" ; run_id ; file_id ] -> (
@@ -291,10 +314,10 @@ module Make(App : App) = struct
             )
             (fun exn ->
                let msg = Exn.to_string exn in
-               return (`Internal_server_error, msg, `Text_plain)
+               return (response `Internal_server_error `Text_plain msg)
             )
         | Error msg ->
-          return (`Bad_request, msg, `Text_plain)
+          return (response `Bad_request `Text_plain msg)
       )
 
     | _ ->
@@ -305,8 +328,7 @@ module Make(App : App) = struct
       let uri = Request.uri req in
       let path = uri |> Uri.path |> String.split ~on:'/' |> List.tl_exn in
       let meth = Request.meth req in
-      handler meth path body >>= fun (status, body, mime) ->
-      let headers = Header.of_list ["Content-Type", string_of_mime_type mime] in
+      handler meth path body >>= fun { status ; body ; headers } ->
       Server.respond_string ~status ~headers ~body ()
     in
     Server.make ~callback ()
