@@ -1,0 +1,23 @@
+opam-version: "1.2"
+name: "bistro_server"
+version: "dev"
+maintainer: "Philippe Veber <philippe.veber@gmail.com>"
+authors: "Philippe Veber <philippe.veber@gmail.com>"
+homepage: "https://github.com/pveber/bistro_server/"
+dev-repo: "https://github.com/pveber/bistro_server.git"
+bug-reports: "https://github.com/pveber/bistro_server/issues"
+license: "GPL"
+build: [
+  ["jbuilder" "build" "--only-packages" "bistro_server" "--root" "." "-j" jobs "@install"]
+]
+depends: [
+  "jbuilder"       {build & >= "1.0+beta8"}
+  "bistro"         {>= "0.2.0"}
+  "cohttp"
+  "containers"
+  "js_of_ocaml"
+  "ocaml-vdom"
+]
+available: [
+  ocaml-version >= "4.03.0"
+]

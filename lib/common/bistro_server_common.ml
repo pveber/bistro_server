@@ -34,7 +34,7 @@ let rec form_value { fields } =
     field_value value >|= fun f ->
     sexp_of_list CCFun.id [ sexp_of_string lab ; f ]
   in
-  List.map field fields
+  List.map ~f:field fields
   |> sequence_l
   >|= sexp_of_list CCFun.id
 
@@ -52,7 +52,7 @@ and field_value =
 
 let form_files form =
   let rec traverse_form { fields } =
-    List.flat_map fields ~f:(fun (label, field) ->
+    List.flat_map fields ~f:(fun (_, field) ->
         traverse_field field
       )
 

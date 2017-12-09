@@ -1,12 +1,13 @@
 (* FIXME:
    should create data directory at startup
 *)
-open Core.Std
+open Core
 open Lwt
 open Cohttp
 open Cohttp_lwt_unix
 open Tyxml_html
 open Bistro_server_common
+open Bistro_utils
 
 type ('a, 'b) result = ('a, 'b) Pervasives.result = Ok of 'a | Error of 'b
 
@@ -15,12 +16,13 @@ let digest x =
   |> Digest.string
   |> Digest.to_hex
 
-let list_remove xs x =
-  List.filter xs ~f:(( = ) x)
-
 let string_of_mime_type = function
   | `Text_plain -> "text/plain; charset=utf-8"
   | `Text_html -> "text/html"
+
+let string_of_path = function
+  | [] -> ""
+  | _ :: _ as xs -> List.reduce_exn xs ~f:Filename.concat
 
 let head ~js t =
   let app_js =
@@ -56,11 +58,14 @@ let render doc =
 
 module type App = sig
   type input
-  [@@deriving sexp]
+  [@@deriving sexp, bistro_form]
 
   val title : string
-  val form : form
-  val derive : input -> Bistro_repo.t
+  val input_bistro_form : form
+  val derive :
+    data:(string -> string) ->
+    input ->
+    Repo.t
 end
 
 module Make(App : App) = struct
@@ -70,7 +75,7 @@ module Make(App : App) = struct
     | Data_upload
     | Repo_build
     | Completed
-    | Errored
+    | Errored of string
   [@@deriving sexp]
 
   type run = {
@@ -78,12 +83,12 @@ module Make(App : App) = struct
     input : App.input ;
     input_files : input_file_descr list ;
     state : run_state ;
-    repo : Bistro_repo.t ;
+    repo : Repo.t ;
   }
 
   let app_specification = {
     app_title = App.title ;
-    app_form = App.form ;
+    app_form = App.input_bistro_form ;
   }
 
   module State :
@@ -134,10 +139,11 @@ module Make(App : App) = struct
 
     let start_run { input ; files } =
       let id = digest input in
+      let data fn = string_of_path [ "data" ; id ; fn ] in
       let r = {
         id ; input ; input_files = files ;
         state = Init ;
-        repo = App.derive input
+        repo = App.derive ~data input
       }
       in
       String.Table.set runs ~key:id ~data:r ;
@@ -152,11 +158,11 @@ module Make(App : App) = struct
             )
           |> Lwt.join >>= fun () ->
           update_run_state id Repo_build ;
-          let outdir = Filename.concat "res" r.id in
-          let term = Bistro_repo.to_app ~outdir r.repo in
-          Bistro_app.create term >|= function
+          let outdir = string_of_path [ "res" ; r.id ] in
+          let term = Repo.to_term ~outdir r.repo in
+          Term.create term >|= function
           | Ok () -> update_run_state id Completed
-          | Error _ -> update_run_state id Errored
+          | Error msg -> update_run_state id (Errored msg)
         ) ;
       id
   end
@@ -181,6 +187,55 @@ module Make(App : App) = struct
   let return_not_found msg =
     return (`Not_found, msg, `Text_plain)
 
+  let run_state_page run rel_path =
+    let title = sprintf "Bistro Web Server: run %s" run.id in
+    let html_page info = html_page ~js:false title info in
+    match run.state with
+    | Completed -> (
+        let path = string_of_path ("res" :: run.id :: rel_path) in
+        Lwt_unix.file_exists path >>= function
+        | false -> return_not_found "Path not found"
+        | true ->
+          Lwt_unix.stat path >>= fun stats ->
+          match stats.Lwt_unix.st_kind with
+          | Unix.S_DIR ->
+            let table =
+              path
+              |> Lwt_unix.files_of_directory
+              |> Lwt_stream.to_list
+              >|= List.filter ~f:(function
+                  | "."
+                  | "_files" -> false
+                  | ".." -> rel_path <> []
+                  | _ -> true
+                )
+              >|= List.sort ~cmp:String.compare
+              >|= List.map ~f:(fun fn ->
+                  let path = string_of_path @@ "/run" :: run.id :: rel_path @ [ fn ] in
+                  tr [ td [ a ~a:[a_href path] [ pcdata fn ] ] ]
+                )
+              >|= table
+            in
+            table
+            >|= (fun x -> [ x ])
+            >|= html_page
+            >>= return_html
+          | Unix.S_REG ->
+            return_text (In_channel.read_all path)
+          | _ -> assert false
+      )
+    | Init
+    | Data_upload
+    | Repo_build ->
+      run.state
+      |> sexp_of_run_state
+      |> Sexplib.Sexp.to_string_hum
+      |> (fun x -> [ pcdata x ])
+      |> html_page
+      |> return_html
+    | Errored msg ->
+      return_text msg
+
   let handler meth path body =
     match meth, path with
     | `GET, [""] ->
@@ -195,14 +250,10 @@ module Make(App : App) = struct
     | `GET, "runs" :: ([] | "/" :: []) ->
       return_html @@ run_list_summary @@ State.get_runs ()
 
-    | `GET, "run" :: run_id :: _ -> (
+    | `GET, "run" :: run_id :: path -> (
         match State.get_run run_id with
         | None -> return_not_found "Unknown run"
-        | Some run ->
-          run.state
-          |> sexp_of_run_state
-          |> Sexplib.Sexp.to_string
-          |> return_text
+        | Some run -> run_state_page run path
       )
 
     | `POST, ["run"] ->

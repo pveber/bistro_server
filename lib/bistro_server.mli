@@ -1,13 +1,16 @@
-open Cohttp_lwt_unix
+open Bistro_utils
 open Bistro_server_common
 
 module type App = sig
   type input
-  [@@deriving sexp]
+  [@@deriving sexp, bistro_form]
 
   val title : string
-  val form : form
-  val derive : input -> Bistro_repo.t
+  val input_bistro_form : form
+  val derive :
+    data:(string -> string) ->
+    input ->
+    Repo.t
 end
 
 module Make(App : App) : sig
