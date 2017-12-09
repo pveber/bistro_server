@@ -2,7 +2,7 @@
 
 (executable
  ((name bistro_client)
-  (libraries (bistro_server_common js_of_ocaml ocaml-vdom))
+  (libraries (bistro_server_common js_of_ocaml lwt ocaml-vdom))
   (modules (bistro_client))
   (preprocess (pps (ppx_sexp_conv)))
   (flags (-no-check-prims))))

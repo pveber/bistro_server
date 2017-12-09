@@ -1,3 +1,4 @@
+open Bistro_utils
 open Bistro_server_common
 
 module type App = sig
@@ -9,7 +10,7 @@ module type App = sig
   val derive :
     data:(string -> string) ->
     input ->
-    Bistro_repo.t
+    Repo.t
 end
 
 module Make(App : App) : sig

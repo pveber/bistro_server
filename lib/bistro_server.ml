@@ -7,6 +7,7 @@ open Cohttp
 open Cohttp_lwt_unix
 open Tyxml_html
 open Bistro_server_common
+open Bistro_utils
 
 type ('a, 'b) result = ('a, 'b) Pervasives.result = Ok of 'a | Error of 'b
 
@@ -64,7 +65,7 @@ module type App = sig
   val derive :
     data:(string -> string) ->
     input ->
-    Bistro_repo.t
+    Repo.t
 end
 
 module Make(App : App) = struct
@@ -82,7 +83,7 @@ module Make(App : App) = struct
     input : App.input ;
     input_files : input_file_descr list ;
     state : run_state ;
-    repo : Bistro_repo.t ;
+    repo : Repo.t ;
   }
 
   let app_specification = {
@@ -158,8 +159,8 @@ module Make(App : App) = struct
           |> Lwt.join >>= fun () ->
           update_run_state id Repo_build ;
           let outdir = string_of_path [ "res" ; r.id ] in
-          let term = Bistro_repo.to_app ~outdir r.repo in
-          Bistro_app.create term >|= function
+          let term = Repo.to_term ~outdir r.repo in
+          Term.create term >|= function
           | Ok () -> update_run_state id Completed
           | Error msg -> update_run_state id (Errored msg)
         ) ;
