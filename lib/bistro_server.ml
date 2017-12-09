@@ -62,27 +62,31 @@ type response = {
   body : string ;
 }
 
-let response ?(headers = []) status mime_type body =
+let response ?(headers = []) ?mime_type status body =
   let headers =
-    ("Content-Type", string_of_mime_type mime_type)
-    :: headers
+    List.concat [
+      Option.value_map mime_type ~default:[] ~f:(fun ty ->
+          [ "Content-Type", string_of_mime_type ty ]
+        ) ;
+      headers ;
+    ]
     |> Header.of_list
   in
   { status ; headers ; body }
 
 let return_html p =
-  return (response `OK `Text_html (render p))
+  return (response `OK ~mime_type:`Text_html (render p))
 
 let return_text t =
-  return (response `OK `Text_plain t)
+  return (response `OK ~mime_type:`Text_plain t)
 
 let return_not_found msg =
-  return (response `Not_found `Text_plain msg)
+  return (response `Not_found ~mime_type:`Text_plain msg)
 
-let return_file mime_type path =
+let return_file ?mime_type path =
   if Sys.file_exists path = `Yes then
-    let contents = In_channel.read_all path in
-    return (response `OK mime_type contents)
+    let contents = In_channel.read_all path in (* FIXME: sync read *)
+    return (response ?mime_type `OK contents)
   else
     return_not_found (sprintf "File %s does not exist" path)
 
@@ -242,12 +246,12 @@ module Make(App : App) = struct
         >|= html_page
         >>= return_html
       | Unix.S_REG -> (
-          let mime_type =
+          let mime_type, download =
             match snd (Filename.split_extension path) with
-            | Some "html" -> `Text_html
-            | _ -> `Text_plain
+            | Some "html" -> Some `Text_html, false
+            | _ -> None, true
           in
-          return_file mime_type path
+          return_file ?mime_type path
         )
       | _ -> assert false
 
@@ -296,7 +300,7 @@ module Make(App : App) = struct
           let id = State.start_run req in
           return_text id
         with Failure s ->
-          return (response `Bad_request `Text_plain s)
+          return (response `Bad_request ~mime_type:`Text_plain s)
       )
 
     | `POST, ["upload" ; run_id ; file_id ] -> (
@@ -314,10 +318,10 @@ module Make(App : App) = struct
             )
             (fun exn ->
                let msg = Exn.to_string exn in
-               return (response `Internal_server_error `Text_plain msg)
+               return (response `Internal_server_error ~mime_type:`Text_plain msg)
             )
         | Error msg ->
-          return (response `Bad_request `Text_plain msg)
+          return (response `Bad_request ~mime_type:`Text_plain msg)
       )
 
     | _ ->
