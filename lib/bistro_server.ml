@@ -187,46 +187,55 @@ module Make(App : App) = struct
   let return_not_found msg =
     return (`Not_found, msg, `Text_plain)
 
+  let file_browser_page run rel_path =
+  let title = sprintf "Bistro Web Server: run %s" run.id in
+  let html_page info = html_page ~js:false title info in
+    let path = string_of_path ("res" :: run.id :: rel_path) in
+    Lwt_unix.file_exists path >>= function
+    | false -> return_not_found "Path not found"
+    | true ->
+      Lwt_unix.stat path >>= fun stats ->
+      match stats.Lwt_unix.st_kind with
+      | Unix.S_DIR ->
+        let table =
+          path
+          |> Lwt_unix.files_of_directory
+          |> Lwt_stream.to_list
+          >|= List.filter ~f:(function
+              | "."
+              | "_files" -> false
+              | ".." -> rel_path <> []
+              | _ -> true
+            )
+          >|= List.sort ~cmp:String.compare
+          >|= List.map ~f:(fun fn ->
+              let path = string_of_path @@ "/run" :: run.id :: rel_path @ [ fn ] in
+              tr [ td [ a ~a:[a_href path] [ pcdata fn ] ] ]
+            )
+          >|= table
+        in
+        table
+        >|= (fun x -> [ x ])
+        >|= html_page
+        >>= return_html
+      | Unix.S_REG -> (
+          let contents = In_channel.read_all path in
+          match snd (Filename.split_extension path) with
+          | Some "html" ->
+            return (`OK, contents, `Text_html)
+          | _ ->
+            return_text contents
+        )
+      | _ -> assert false
+
   let run_state_page run rel_path =
-    let title = sprintf "Bistro Web Server: run %s" run.id in
-    let html_page info = html_page ~js:false title info in
     match run.state with
-    | Completed -> (
-        let path = string_of_path ("res" :: run.id :: rel_path) in
-        Lwt_unix.file_exists path >>= function
-        | false -> return_not_found "Path not found"
-        | true ->
-          Lwt_unix.stat path >>= fun stats ->
-          match stats.Lwt_unix.st_kind with
-          | Unix.S_DIR ->
-            let table =
-              path
-              |> Lwt_unix.files_of_directory
-              |> Lwt_stream.to_list
-              >|= List.filter ~f:(function
-                  | "."
-                  | "_files" -> false
-                  | ".." -> rel_path <> []
-                  | _ -> true
-                )
-              >|= List.sort ~cmp:String.compare
-              >|= List.map ~f:(fun fn ->
-                  let path = string_of_path @@ "/run" :: run.id :: rel_path @ [ fn ] in
-                  tr [ td [ a ~a:[a_href path] [ pcdata fn ] ] ]
-                )
-              >|= table
-            in
-            table
-            >|= (fun x -> [ x ])
-            >|= html_page
-            >>= return_html
-          | Unix.S_REG ->
-            return_text (In_channel.read_all path)
-          | _ -> assert false
-      )
+    | Completed -> file_browser_page run rel_path
     | Init
     | Data_upload
     | Repo_build ->
+      let title = sprintf "Bistro Web Server: run %s" run.id in
+      let html_page info = html_page ~js:false title info in
       run.state
       |> sexp_of_run_state
       |> Sexplib.Sexp.to_string_hum
