@@ -1,4 +1,3 @@
-open Sexplib.Std
 open Js_browser
 open Bistro_server_common
 module List = CCListLabels
@@ -36,14 +35,15 @@ type model =
   | Data_upload of {
       title : string ;
       run_id : string ;
-      files : (string * File.t * [`TODO | `INPROGRESS | `DONE | `FAILED]) list ;
+      files : (string * File.t * [`TODO | `INPROGRESS | `DONE | `FAILED of int]) list ;
     }
 
 let string_of_upload_status = function
   | `TODO -> "TODO"
   | `INPROGRESS -> "INPROGRESS"
   | `DONE -> "DONE"
-  | `FAILED -> "FAILED"
+  | `FAILED code ->
+    Printf.sprintf "FAILED with code %d" code
 
 
 let string_of_meth = function
@@ -72,7 +72,10 @@ let http_request meth path body =
   waiter
 
 let button ?(a = []) msg label =
-  Vdom.elt "button" ~a:(Vdom.onclick msg :: a) [ Vdom.text label ]
+  let open Vdom in
+  elt "button"
+    ~a:(onclick msg :: attr "type" "button" :: a)
+    [ Vdom.text label ]
 
 let h2 ?a xs = Vdom.elt ?a "h2" xs
 
@@ -110,11 +113,10 @@ let rec form_view_aux ?(root = false) ?legend form_path { fields } =
     field_view (label :: form_path) label field_kind
   in
   form Vdom.[
-    fieldset ?legend @@ List.map fields ~f ;
-    if root then
-      div []
-    else
-      div []
+      fieldset ?legend @@ List.map fields ~f ;
+      if root then
+        button ~a:[attr "class" "btn btn-primary"] `Run "Run"
+      else div []
   ]
 
 and field_view field_path lab field =
@@ -225,7 +227,7 @@ let upload_file ~run_id ~file_id file =
     handler = fun code _ ->
       match code with
       | 200 -> `Upload_completed (run_id, file_id)
-      | _ -> `Upload_failed (run_id, file_id)
+      | _ -> `Upload_failed (run_id, file_id, code)
   }
 
 let update_file_upload_status files file_id status =
@@ -298,8 +300,10 @@ let rec update m msg =
         update (Data_upload { up with files })  (`Goto_url ["run" ; up.run_id])
     )
 
-  | Data_upload up, `Upload_failed (_, completed_file_id) -> (
-      let files = update_file_upload_status up.files completed_file_id `FAILED in
+  | Data_upload up, `Upload_failed (_, completed_file_id, code) -> (
+      let files =
+        update_file_upload_status up.files completed_file_id (`FAILED code)
+      in
       Vdom.return (Data_upload { up with files }) (* FIXME: try other uploads? *)
     )
   | _, `Next (state, c) -> Vdom.return ~c state
@@ -310,6 +314,7 @@ let rec update m msg =
   | Data_upload _, (`Form_update _ | `Run) -> assert false
   | Form _, (`Upload_completed _ | `Upload_failed _) -> assert false
 
+
 let view m =
   let open Vdom in
   let contents = match m with
@@ -317,8 +322,6 @@ let view m =
         h2 [ text m.title ] ;
         br () ;
         form_view m.form ;
-      button ~a:[attr "class" "btn btn-primary"] `Run "Run"
-        
         (* FIXME: debugging stuff *)
         (* br () ; *)
         (* text @@ Sexplib.Sexp.to_string_hum @@ sexp_of_form m.form ; *)
