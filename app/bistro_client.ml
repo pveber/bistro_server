@@ -21,7 +21,8 @@ type 'a Vdom.Cmd.t +=
       meth : [ `GET | `POST ] ;
       path : string list ;
       body : string Lwt.t ;
-      handler : int -> string -> 'a
+      handler : int -> string -> 'a ;
+      delay : float ;
     } -> 'a Vdom.Cmd.t
 
 module String_map = Map.Make(String)
@@ -35,16 +36,27 @@ type model =
   | Data_upload of {
       title : string ;
       run_id : string ;
-      files : (string * File.t * [`TODO | `INPROGRESS | `DONE | `FAILED of int]) list ;
+      files : (string *
+               File.t *
+               [`TODO | `INPROGRESS | `DONE | `FAILED of int]) list ;
+    }
+  | Build_monitor of {
+      title : string ;
+      run_id : string ;
+      log : build_log ;
     }
 
 let string_of_upload_status = function
   | `TODO -> "TODO"
-  | `INPROGRESS -> "INPROGRESS"
+  | `INPROGRESS -> "IN PROGRESS"
   | `DONE -> "DONE"
   | `FAILED code ->
     Printf.sprintf "FAILED with code %d" code
 
+let string_of_build_status = function
+  | `STARTED -> "RUNNING"
+  | `DONE -> "DONE"
+  | `FAILED -> "FAILED"
 
 let string_of_meth = function
   | `GET -> "GET"
@@ -92,7 +104,10 @@ let br () = Vdom.elt "br" []
 
 let label ?a xs = Vdom.elt ?a "label" xs
 
-let table ?a xs = Vdom.elt ?a "table" xs
+let table ?(a = []) xs =
+  Vdom.(
+    elt ~a:(attr "class" "table" :: a) "table" xs
+  )
 
 let tr ?a xs = Vdom.elt ?a "tr" xs
 
@@ -224,10 +239,13 @@ let upload_file ~run_id ~file_id file =
     meth = `POST ;
     path = ["upload" ; run_id ; file_id] ;
     body = read_file file ;
-    handler = fun code _ ->
-      match code with
-      | 200 -> `Upload_completed (run_id, file_id)
-      | _ -> `Upload_failed (run_id, file_id, code)
+    handler = (
+      fun code _ ->
+        match code with
+        | 200 -> `Upload_completed (run_id, file_id)
+        | _ -> `Upload_failed (run_id, file_id, code)
+    ) ;
+    delay = 0. ;
   }
 
 let update_file_upload_status files file_id status =
@@ -235,6 +253,21 @@ let update_file_upload_status files file_id status =
       if id = file_id then (id, file, status)
       else e
     )
+
+let build_status ~delay ~run_id =
+  Http_request {
+    meth = `GET ;
+    path = [ "run" ; "log" ; run_id ] ;
+    body = Lwt.return "" ;
+    delay ;
+    handler = fun _ sexp -> (* FIXME: check for error *)
+      let log =
+        sexp
+        |> Parsexp.Single.parse_string_exn
+        |> build_log_of_sexp
+      in
+      `Build_update log
+  }
 
 let rec update m msg =
   match m, msg with
@@ -266,6 +299,7 @@ let rec update m msg =
             meth = `POST ;
             path = ["run"] ;
             body = Lwt.return @@ Sexplib.Sexp.to_string sexp ;
+            delay = 0. ;
             handler = fun _ run_id -> (* FIXME: check for error *)
               match input_files with
               | [] -> `Goto_url ["run" ; run_id]
@@ -297,7 +331,14 @@ let rec update m msg =
         let c = [ upload_file ~run_id:up.run_id ~file_id file ] in
         Vdom.return ~c m
       | exception Not_found ->
-        update (Data_upload { up with files })  (`Goto_url ["run" ; up.run_id])
+        (* update (Data_upload { up with files })  (`Goto_url ["run" ; up.run_id]) *)
+        let m = Build_monitor {
+            title = up.title ;
+            run_id = up.run_id ;
+            log = [] ;
+          } in
+        let c = [ build_status ~delay:0. ~run_id:up.run_id ] in
+        Vdom.return ~c m
     )
 
   | Data_upload up, `Upload_failed (_, completed_file_id, code) -> (
@@ -306,13 +347,22 @@ let rec update m msg =
       in
       Vdom.return (Data_upload { up with files }) (* FIXME: try other uploads? *)
     )
+
+  | Build_monitor bm, `Build_update log ->
+    let c = [ build_status ~delay:1. ~run_id:bm.run_id ] in
+    Vdom.return ~c (Build_monitor { bm with log })
+
   | _, `Next (state, c) -> Vdom.return ~c state
   | _, `Goto_url path ->
     Location.assign (Window.location window) (site_uri path) ;
     Vdom.return m
 
-  | Data_upload _, (`Form_update _ | `Run) -> assert false
-  | Form _, (`Upload_completed _ | `Upload_failed _) -> assert false
+  | Data_upload _, (`Form_update _ | `Run | `Build_update _) ->
+    assert false
+  | Form _, (`Upload_completed _ | `Upload_failed _ | `Build_update _) ->
+    assert false
+  | Build_monitor _, (`Form_update _ | `Run | `Upload_failed _ | `Upload_completed _) ->
+    assert false
 
 
 let view m =
@@ -341,14 +391,24 @@ let view m =
           )
 
       ]
+
+    | Build_monitor bm -> [
+        h2 [ text bm.title ] ;
+        br () ;
+        table @@ List.map bm.log ~f:(fun { Build_log_entry.descr ; status } ->
+            tr [ td [ text descr ] ;
+                 td [ text (string_of_build_status status) ] ]
+          )
+      ]
   in
   div ~a:[attr "class" "container"] contents
 
 let cmd_handler = {
   Vdom_blit.Cmd.f = fun ctx ->
     function
-    | Http_request { meth ; path ; body ; handler } ->
+    | Http_request { meth ; path ; body ; handler ; delay } ->
       Lwt.async (fun () ->
+          Lwt_js.sleep delay >>= fun () ->
           body >>= fun body ->
           http_request meth path body >>| fun (code, body) ->
           Vdom_blit.Cmd.send_msg ctx (handler code body)

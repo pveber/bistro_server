@@ -8,6 +8,9 @@ and field =
   | Form_field of form
 [@@deriving sexp]
 
+val form_value : form -> Sexplib.Type.t option
+val form_files : form -> string list
+
 type app_specification = {
   app_title : string ;
   app_form : form ;
@@ -24,5 +27,18 @@ and input_file_descr = {
 }
 [@@deriving sexp]
 
-val form_value : form -> Sexplib.Type.t option
-val form_files : form -> string list
+module Build_log_entry : sig
+  type t = {
+    id : string ;
+    descr : string ;
+    status : [
+      | `STARTED
+      | `DONE
+      | `FAILED
+    ] ;
+  }
+  [@@deriving sexp]
+end
+
+type build_log = Build_log_entry.t list
+[@@deriving sexp]

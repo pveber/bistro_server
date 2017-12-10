@@ -92,6 +92,13 @@ let return_file ?mime_type path =
   else
     return_not_found (sprintf "File %s does not exist" path)
 
+let return_sexp conv v =
+  let contents =
+    conv v
+    |> Sexplib.Sexp.to_string
+  in
+  return (response `OK ~mime_type:`Text_plain contents)
+
 module type App = sig
   type input
   [@@deriving sexp, bistro_form]
@@ -118,6 +125,7 @@ module Make(App : App) = struct
     id : string ;
     input : App.input ;
     input_files : input_file_descr list ;
+    log : build_log ;
     state : run_state ;
     repo : Repo.t ;
   }
@@ -131,6 +139,7 @@ module Make(App : App) = struct
   sig
     val start_run : App.input run_request -> string
     val get_run : string -> run option
+    val get_run_exn : string -> run
     val get_runs : unit -> run list
 
     val accept_download :
@@ -150,6 +159,7 @@ module Make(App : App) = struct
     let uploads = U.create ()
 
     let get_run id = String.Table.find runs id
+    let get_run_exn id = String.Table.find_exn runs id
 
     let get_runs () = String.Table.data runs
 
@@ -173,12 +183,52 @@ module Make(App : App) = struct
       | Some (`Started _) -> Error "Already started"
       | Some `Completed -> Error "Already uploaded"
 
+    let logger id = object
+      method event _ _ ev =
+        let store e =
+          let run = get_run_exn id in
+          let log = e :: List.filter run.log ~f:Build_log_entry.(fun x ->
+              x.id <> e.id
+            ) in
+          String.Table.set runs ~key:id ~data:{ run with log }
+        in
+        match ev with
+        | Bistro_engine.Scheduler.Init _
+        | Task_ready _
+        | Task_started ((Input _ | Select _), _)
+        | Task_ended (Input_check _ | Select_check _)
+        | Task_skipped _ -> ()
+        | Task_started (Bistro.Step { id ; descr }, _) ->
+          let e = Build_log_entry.{
+              id ;
+              descr ;
+              status = `STARTED ;
+            }
+          in
+          store e
+        | Task_ended (Step_result { outcome ; step }) ->
+          let e = Build_log_entry.{
+              id = step.id ;
+              descr = step.descr ;
+              status = (
+                match outcome with
+                | `Succeeded -> `DONE
+                | `Failed | `Missing_output -> `FAILED
+              ) ;
+            }
+          in
+          store e
+      method stop = () (* FIXME: should stop modifying run *)
+      method wait4shutdown = Lwt.return ()
+    end
+
     let start_run { input ; files } =
       let id = digest input in
       let data fn = string_of_path [ "data" ; id ; fn ] in
       let r = {
         id ; input ; input_files = files ;
         state = Init ;
+        log = [] ;
         repo = App.derive ~data input
       }
       in
@@ -196,11 +246,12 @@ module Make(App : App) = struct
           update_run_state id Repo_build ;
           let outdir = string_of_path [ "res" ; r.id ] in
           let term = Repo.to_term ~outdir r.repo in
-          Term.create term >|= function
+          Term.create ~logger:(logger id) term >|= function
           | Ok () -> update_run_state id Completed
           | Error msg -> update_run_state id (Errored msg)
         ) ;
       id
+
   end
 
 
@@ -274,6 +325,10 @@ module Make(App : App) = struct
     | Errored msg ->
       return_text msg
 
+  let get_build_status run_id =
+    return_sexp sexp_of_build_log (State.get_run_exn run_id).log
+
+
   let handler meth path body =
     match meth, path with
     | `GET, [""] ->
@@ -287,6 +342,12 @@ module Make(App : App) = struct
 
     | `GET, "runs" :: ([] | "/" :: []) ->
       return_html @@ run_list_summary @@ State.get_runs ()
+
+    | `GET, "run" :: "log" :: run_id :: [] -> (
+        match State.get_run run_id with
+        | None -> return_not_found "Unknown run"
+        | Some run -> get_build_status run_id
+      )
 
     | `GET, "run" :: run_id :: path -> (
         match State.get_run run_id with

@@ -64,3 +64,21 @@ let form_files form =
 
   in
   traverse_form form
+
+
+module Build_log_entry = struct
+  type t = {
+    id : string ;
+    descr : string ;
+    status : [
+      | `STARTED
+      | `DONE
+      | `FAILED
+    ] ;
+  }
+  [@@deriving sexp]
+end
+
+type build_log = Build_log_entry.t list
+[@@deriving sexp]
+

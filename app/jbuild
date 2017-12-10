@@ -2,7 +2,8 @@
 
 (executable
  ((name bistro_client)
-  (libraries (bistro_server_common js_of_ocaml lwt ocaml-vdom))
+  (libraries (bistro_server_common js_of_ocaml js_of_ocaml-lwt
+              lwt ocaml-vdom parsexp))
   (modules (bistro_client))
   (preprocess (pps (ppx_sexp_conv)))
   (flags (-no-check-prims))))
@@ -11,7 +12,7 @@
 (rule
  ((targets (bistro_client.js))
   (deps (bistro_client.bc))
-  (action (run js_of_ocaml +gen_js_api/ojs_runtime.js +toplevel.js +weak.js ${<}))))
+  (action (run js_of_ocaml +gen_js_api/ojs_runtime.js +base/runtime.js +toplevel.js +weak.js ${<}))))
 
 (executables
  ((names (test1 test2))
