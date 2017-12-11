@@ -43,7 +43,7 @@ type model =
   | Build_monitor of {
       title : string ;
       run_id : string ;
-      log : build_log ;
+      status : Build_status.t ;
     }
 
 let string_of_upload_status = function
@@ -83,6 +83,8 @@ let http_request meth path body =
   XHR.send xhr body ;
   waiter
 
+let br () = Vdom.elt "br" []
+
 let button ?(a = []) msg label =
   let open Vdom in
   elt "button"
@@ -100,14 +102,18 @@ let fieldset ?(a = []) ?legend xs =
   let open Vdom in
   Vdom.elt "fieldset" ~a @@ List.cons_maybe (Option.map legend_ legend) xs
 
-let br () = Vdom.elt "br" []
 
 let label ?a xs = Vdom.elt ?a "label" xs
+
+let p ?a xs = Vdom.elt ?a "p" xs
 
 let table ?(a = []) xs =
   Vdom.(
     elt ~a:(attr "class" "table" :: a) "table" xs
   )
+
+let textf fmt =
+  Printf.ksprintf Vdom.text fmt
 
 let tr ?a xs = Vdom.elt ?a "tr" xs
 
@@ -264,7 +270,7 @@ let build_status ~delay ~run_id =
       let log =
         sexp
         |> Parsexp.Single.parse_string_exn
-        |> build_log_of_sexp
+        |> Build_status.t_of_sexp
       in
       `Build_update log
   }
@@ -331,12 +337,7 @@ let rec update m msg =
         let c = [ upload_file ~run_id:up.run_id ~file_id file ] in
         Vdom.return ~c m
       | exception Not_found ->
-        (* update (Data_upload { up with files })  (`Goto_url ["run" ; up.run_id]) *)
-        let m = Build_monitor {
-            title = up.title ;
-            run_id = up.run_id ;
-            log = [] ;
-          } in
+        let m = Data_upload { up with files } in
         let c = [ build_status ~delay:0. ~run_id:up.run_id ] in
         Vdom.return ~c m
     )
@@ -348,16 +349,27 @@ let rec update m msg =
       Vdom.return (Data_upload { up with files }) (* FIXME: try other uploads? *)
     )
 
-  | Build_monitor bm, `Build_update log ->
+  | Data_upload up, `Build_update status ->
+    if List.exists up.files ~f:(fun (_,_,status) -> status <> `DONE)
+    then assert false ;
+    let m = Build_monitor {
+        title = up.title ;
+        run_id = up.run_id ;
+        status ;
+      } in
+    let c = [ build_status ~delay:1. ~run_id:up.run_id ] in
+    Vdom.return ~c m
+
+  | Build_monitor bm, `Build_update status ->
     let c = [ build_status ~delay:1. ~run_id:bm.run_id ] in
-    Vdom.return ~c (Build_monitor { bm with log })
+    Vdom.return ~c (Build_monitor { bm with status })
 
   | _, `Next (state, c) -> Vdom.return ~c state
   | _, `Goto_url path ->
     Location.assign (Window.location window) (site_uri path) ;
     Vdom.return m
 
-  | Data_upload _, (`Form_update _ | `Run | `Build_update _) ->
+  | Data_upload _, (`Form_update _ | `Run) ->
     assert false
   | Form _, (`Upload_completed _ | `Upload_failed _ | `Build_update _) ->
     assert false
@@ -392,10 +404,15 @@ let view m =
 
       ]
 
-    | Build_monitor bm -> [
+    | Build_monitor bm -> Build_status.[
         h2 [ text bm.title ] ;
         br () ;
-        table @@ List.map bm.log ~f:(fun { Build_log_entry.descr ; status } ->
+        p [
+          textf "Performed %d/%d tasks"
+            bm.status.nb_completed_steps
+            bm.status.nb_steps ;
+        ] ;
+        table @@ List.map bm.status.log ~f:(fun { Build_log_entry.descr ; status } ->
             tr [ td [ text descr ] ;
                  td [ text (string_of_build_status status) ] ]
           )

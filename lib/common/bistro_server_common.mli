@@ -40,5 +40,12 @@ module Build_log_entry : sig
   [@@deriving sexp]
 end
 
-type build_log = Build_log_entry.t list
-[@@deriving sexp]
+module Build_status : sig
+  type t = {
+    log : Build_log_entry.t list ;
+    nb_steps : int ;
+    nb_completed_steps : int ;
+    nb_failed_steps : int ;
+  }
+  [@@deriving sexp]
+end

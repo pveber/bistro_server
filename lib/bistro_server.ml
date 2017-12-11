@@ -125,8 +125,8 @@ module Make(App : App) = struct
     id : string ;
     input : App.input ;
     input_files : input_file_descr list ;
-    log : build_log ;
     state : run_state ;
+    build_status : Build_status.t option ;
     repo : Repo.t ;
   }
 
@@ -187,13 +187,35 @@ module Make(App : App) = struct
       method event _ _ ev =
         let store e =
           let run = get_run_exn id in
-          let log = e :: List.filter run.log ~f:Build_log_entry.(fun x ->
-              x.id <> e.id
-            ) in
-          String.Table.set runs ~key:id ~data:{ run with log }
+          let build_status = Option.map run.build_status ~f:(fun status ->
+              {
+                status with
+                log = e :: List.filter status.log ~f:Build_log_entry.(fun x ->
+                    x.id <> e.id
+                  ) ;
+                nb_completed_steps =
+                  status.nb_completed_steps + if e.status = `DONE then 1 else 0 ;
+                nb_failed_steps =
+                  status.nb_failed_steps + if e.status = `FAILED then 1 else 0 ;
+              }
+            )
+          in
+          let run = { run with build_status } in
+          String.Table.set runs ~key:id ~data:run
         in
         match ev with
-        | Bistro_engine.Scheduler.Init _
+        | Bistro_engine.Scheduler.Init { needed ; already_done } ->
+          let build_status = Some Build_status.{
+            log = [] ;
+            nb_steps = List.length needed ;
+            nb_completed_steps = List.length already_done ;
+            nb_failed_steps = 0 ;
+          }
+          in
+          update_run_state id Repo_build ;
+          let run = get_run_exn id in
+          String.Table.set runs ~key:id ~data:{ run with build_status }
+
         | Task_ready _
         | Task_started ((Input _ | Select _), _)
         | Task_ended (Input_check _ | Select_check _)
@@ -228,7 +250,7 @@ module Make(App : App) = struct
       let r = {
         id ; input ; input_files = files ;
         state = Init ;
-        log = [] ;
+        build_status = None ;
         repo = App.derive ~data input
       }
       in
@@ -243,9 +265,9 @@ module Make(App : App) = struct
               wait_for_upload
             )
           |> Lwt.join >>= fun () ->
-          update_run_state id Repo_build ;
           let outdir = string_of_path [ "res" ; r.id ] in
           let term = Repo.to_term ~outdir r.repo in
+          (* the logger sets the state to Repo_build *)
           Term.create ~logger:(logger id) term >|= function
           | Ok () -> update_run_state id Completed
           | Error msg -> update_run_state id (Errored msg)
@@ -326,7 +348,10 @@ module Make(App : App) = struct
       return_text msg
 
   let get_build_status run_id =
-    return_sexp sexp_of_build_log (State.get_run_exn run_id).log
+    match (State.get_run_exn run_id).build_status with
+    | Some status ->
+      return_sexp Build_status.sexp_of_t status
+    | None -> return_not_found "no build status" (* FIXME *)
 
 
   let handler meth path body =
@@ -381,6 +406,7 @@ module Make(App : App) = struct
             )
             (fun exn ->
                let msg = Exn.to_string exn in
+               print_endline msg ;
                return (response `Internal_server_error ~mime_type:`Text_plain msg)
             )
         | Error msg ->

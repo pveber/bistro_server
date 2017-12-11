@@ -79,6 +79,12 @@ module Build_log_entry = struct
   [@@deriving sexp]
 end
 
-type build_log = Build_log_entry.t list
-[@@deriving sexp]
-
+module Build_status = struct
+  type t = {
+    log : Build_log_entry.t list ;
+    nb_steps : int ;
+    nb_completed_steps : int ;
+    nb_failed_steps : int ;
+  }
+  [@@deriving sexp]
+end
