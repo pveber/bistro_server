@@ -12,11 +12,15 @@ build: [
 ]
 depends: [
   "jbuilder"       {build & >= "1.0+beta8"}
-  "bistro"         {>= "0.2.0"}
+  "bistro"         {>= "0.3.0"}
   "cohttp"
+  "cohttp-lwt-unix"
   "containers"
   "js_of_ocaml"
+  "js_of_ocaml-lwt"
   "ocaml-vdom"
+  "ocamlify"
+  "parsexp"
 ]
 available: [
   ocaml-version >= "4.03.0"
