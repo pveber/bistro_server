@@ -426,6 +426,6 @@ module Make(App : App) = struct
     in
     Server.make ~callback ()
 
-  let start () =
-    Server.create ~mode:(`TCP (`Port 8000)) (server ())
+  let start ?(port = 8080) () =
+    Server.create ~mode:(`TCP (`Port port)) (server ())
 end

@@ -14,5 +14,7 @@ module type App = sig
 end
 
 module Make(App : App) : sig
-  val start : unit -> unit Lwt.t
+  val start :
+    ?port:int ->
+    unit -> unit Lwt.t
 end
