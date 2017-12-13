@@ -99,6 +99,12 @@ let return_sexp conv v =
   in
   return (response `OK ~mime_type:`Text_plain contents)
 
+let upload_dir ~root_dir ~run_id =
+  List.reduce_exn ~f:Filename.concat [root_dir ; "runs" ; run_id ; "uploads"]
+
+let result_dir ~root_dir ~run_id =
+  List.reduce_exn ~f:Filename.concat [root_dir ; "runs" ; run_id ; "res"]
+
 module type App = sig
   type input
   [@@deriving sexp, bistro_form]
@@ -137,7 +143,10 @@ module Make(App : App) = struct
 
   module State :
   sig
-    val start_run : App.input run_request -> string
+    val start_run :
+      root_dir:string ->
+      App.input run_request ->
+      string
     val get_run : string -> run option
     val get_run_exn : string -> run
     val get_runs : unit -> run list
@@ -244,35 +253,35 @@ module Make(App : App) = struct
       method wait4shutdown = Lwt.return ()
     end
 
-    let start_run { input ; files } =
-      let id = digest input in
-      let data fn = string_of_path [ "data" ; id ; fn ] in
+    let start_run ~root_dir { input ; files } =
+      let run_id = digest input in
+      let data fn = Filename.concat (upload_dir ~run_id ~root_dir) fn in
       let r = {
-        id ; input ; input_files = files ;
+        id = run_id ; input ; input_files = files ;
         state = Init ;
         build_status = None ;
         repo = App.derive ~data input
       }
       in
-      String.Table.set runs ~key:id ~data:r ;
+      String.Table.set runs ~key:run_id ~data:r ;
       Lwt.async (fun () ->
-          update_run_state id Data_upload ;
+          update_run_state run_id Data_upload ;
           List.map files ~f:(fun fn ->
               let wait_for_upload, uploaded = Lwt.wait () in
               U.set uploads
-                ~key:(id, fn.input_file_id)
+                ~key:(run_id, fn.input_file_id)
                 ~data:(`Needed uploaded) ;
               wait_for_upload
             )
           |> Lwt.join >>= fun () ->
-          let outdir = string_of_path [ "res" ; r.id ] in
+          let outdir = result_dir ~root_dir ~run_id:r.id in
           let term = Repo.to_term ~outdir r.repo in
           (* the logger sets the state to Repo_build *)
-          Term.create ~logger:(logger id) term >|= function
-          | Ok () -> update_run_state id Completed
-          | Error msg -> update_run_state id (Errored msg)
+          Term.create ~logger:(Logger.tee [ logger run_id ; Console_logger.create ()]) term >|= function
+          | Ok () -> update_run_state run_id Completed
+          | Error msg -> update_run_state run_id (Errored msg)
         ) ;
-      id
+      run_id
 
   end
 
@@ -289,10 +298,13 @@ module Make(App : App) = struct
       table ;
     ]
 
-  let file_browser_page run rel_path =
+  let file_browser_page ~root_dir run rel_path =
     let title = sprintf "Bistro Web Server: run %s" run.id in
     let html_page info = html_page ~js:false title info in
-    let path = string_of_path ("res" :: run.id :: rel_path) in
+    let path =
+      Filename.concat
+        (result_dir ~root_dir ~run_id:run.id)
+        (string_of_path rel_path) in
     Lwt_unix.file_exists path >>= function
     | false -> return_not_found "Path not found"
     | true ->
@@ -330,9 +342,9 @@ module Make(App : App) = struct
         )
       | _ -> assert false
 
-  let run_state_page run rel_path =
+  let run_state_page ~root_dir run rel_path =
     match run.state with
-    | Completed -> file_browser_page run rel_path
+    | Completed -> file_browser_page ~root_dir run rel_path
     | Init
     | Data_upload
     | Repo_build ->
@@ -354,7 +366,7 @@ module Make(App : App) = struct
     | None -> return_not_found "no build status" (* FIXME *)
 
 
-  let handler meth path body =
+  let handler ~root_dir ~build_log meth path body =
     match meth, path with
     | `GET, [""] ->
       return_html @@ html_page "Bistro Web Server" []
@@ -377,7 +389,7 @@ module Make(App : App) = struct
     | `GET, "run" :: run_id :: path -> (
         match State.get_run run_id with
         | None -> return_not_found "Unknown run"
-        | Some run -> run_state_page run path
+        | Some run -> run_state_page ~root_dir run path
       )
 
     | `POST, ["run"] ->
@@ -385,7 +397,7 @@ module Make(App : App) = struct
       (
         try
           let req = run_request_of_sexp App.input_of_sexp (Sexp.of_string body) in
-          let id = State.start_run req in
+          let id = State.start_run ~root_dir req in
           return_text id
         with Failure s ->
           return (response `Bad_request ~mime_type:`Text_plain s)
@@ -396,9 +408,10 @@ module Make(App : App) = struct
         | Ok notify_completion ->
           Lwt.catch (fun () ->
               let open Lwt_io in
-              let dir = Filename.concat "data" run_id in
-              let file = Filename.concat dir file_id in
-              Lwt_unix.mkdir dir 0o755 >>= fun () ->
+              let upload_dir = upload_dir ~root_dir ~run_id in
+              Unix.mkdir_p upload_dir ; (* FIXME *)
+              (* Lwt_unix.mkdir upload_dir 0o755 >>= fun () -> *)
+              let file = Filename.concat upload_dir file_id in
               with_file ~mode:output file @@ fun oc ->
               Cohttp_lwt_body.write_body (write oc) body >>= fun () ->
               notify_completion () ;
@@ -416,16 +429,17 @@ module Make(App : App) = struct
     | _ ->
       return_not_found "Page not found"
 
-  let server () =
+  let server ~build_log ~root_dir () =
+    Unix.mkdir_p root_dir ;
     let callback _conn req body =
       let uri = Request.uri req in
       let path = uri |> Uri.path |> String.split ~on:'/' |> List.tl_exn in
       let meth = Request.meth req in
-      handler meth path body >>= fun { status ; body ; headers } ->
+      handler ~build_log ~root_dir meth path body >>= fun { status ; body ; headers } ->
       Server.respond_string ~status ~headers ~body ()
     in
     Server.make ~callback ()
 
-  let start ?(port = 8080) () =
-    Server.create ~mode:(`TCP (`Port port)) (server ())
+  let start ?(port = 8080) ?(build_log = false) ?(root_dir = "_bistro") () =
+    Server.create ~mode:(`TCP (`Port port)) (server ~build_log ~root_dir ())
 end

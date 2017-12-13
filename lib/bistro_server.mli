@@ -16,5 +16,7 @@ end
 module Make(App : App) : sig
   val start :
     ?port:int ->
+    ?build_log:bool ->
+    ?root_dir:string ->
     unit -> unit Lwt.t
 end
