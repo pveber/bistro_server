@@ -11,6 +11,14 @@ open Bistro_utils
 
 type ('a, 'b) result = ('a, 'b) Pervasives.result = Ok of 'a | Error of 'b
 
+type server_config = {
+  np : int option ;
+  mem : int option ;
+  build_log : bool ;
+  port : int ;
+  root_dir : string ;
+}
+
 let digest x =
   Marshal.to_string x []
   |> Digest.string
@@ -99,11 +107,15 @@ let return_sexp conv v =
   in
   return (response `OK ~mime_type:`Text_plain contents)
 
-let upload_dir ~root_dir ~run_id =
-  List.reduce_exn ~f:Filename.concat [root_dir ; "runs" ; run_id ; "uploads"]
+let upload_dir config ~run_id =
+  List.reduce_exn
+    ~f:Filename.concat
+    [config.root_dir ; "runs" ; run_id ; "uploads"]
 
-let result_dir ~root_dir ~run_id =
-  List.reduce_exn ~f:Filename.concat [root_dir ; "runs" ; run_id ; "res"]
+let result_dir config ~run_id =
+  List.reduce_exn
+    ~f:Filename.concat
+    [config.root_dir ; "runs" ; run_id ; "res"]
 
 module type App = sig
   type input
@@ -144,7 +156,7 @@ module Make(App : App) = struct
   module State :
   sig
     val start_run :
-      root_dir:string ->
+      server_config ->
       App.input run_request ->
       string
     val get_run : string -> run option
@@ -253,9 +265,9 @@ module Make(App : App) = struct
       method wait4shutdown = Lwt.return ()
     end
 
-    let start_run ~root_dir { input ; files } =
+    let start_run config { input ; files } =
       let run_id = digest input in
-      let data fn = Filename.concat (upload_dir ~run_id ~root_dir) fn in
+      let data fn = Filename.concat (upload_dir config ~run_id) fn in
       let r = {
         id = run_id ; input ; input_files = files ;
         state = Init ;
@@ -274,7 +286,7 @@ module Make(App : App) = struct
               wait_for_upload
             )
           |> Lwt.join >>= fun () ->
-          let outdir = result_dir ~root_dir ~run_id:r.id in
+          let outdir = result_dir config ~run_id:r.id in
           let term = Repo.to_term ~outdir r.repo in
           (* the logger sets the state to Repo_build *)
           Term.create ~logger:(Logger.tee [ logger run_id ; Console_logger.create ()]) term >|= function
@@ -298,12 +310,12 @@ module Make(App : App) = struct
       table ;
     ]
 
-  let file_browser_page ~root_dir run rel_path =
+  let file_browser_page config run rel_path =
     let title = sprintf "Bistro Web Server: run %s" run.id in
     let html_page info = html_page ~js:false title info in
     let path =
       Filename.concat
-        (result_dir ~root_dir ~run_id:run.id)
+        (result_dir config ~run_id:run.id)
         (string_of_path rel_path) in
     Lwt_unix.file_exists path >>= function
     | false -> return_not_found "Path not found"
@@ -342,9 +354,9 @@ module Make(App : App) = struct
         )
       | _ -> assert false
 
-  let run_state_page ~root_dir run rel_path =
+  let run_state_page config run rel_path =
     match run.state with
-    | Completed -> file_browser_page ~root_dir run rel_path
+    | Completed -> file_browser_page config run rel_path
     | Init
     | Data_upload
     | Repo_build ->
@@ -366,7 +378,7 @@ module Make(App : App) = struct
     | None -> return_not_found "no build status" (* FIXME *)
 
 
-  let handler ~root_dir ~build_log meth path body =
+  let handler config meth path body =
     match meth, path with
     | `GET, [""] ->
       return_html @@ html_page "Bistro Web Server" []
@@ -389,7 +401,7 @@ module Make(App : App) = struct
     | `GET, "run" :: run_id :: path -> (
         match State.get_run run_id with
         | None -> return_not_found "Unknown run"
-        | Some run -> run_state_page ~root_dir run path
+        | Some run -> run_state_page config run path
       )
 
     | `POST, ["run"] ->
@@ -397,7 +409,7 @@ module Make(App : App) = struct
       (
         try
           let req = run_request_of_sexp App.input_of_sexp (Sexp.of_string body) in
-          let id = State.start_run ~root_dir req in
+          let id = State.start_run config req in
           return_text id
         with Failure s ->
           return (response `Bad_request ~mime_type:`Text_plain s)
@@ -408,7 +420,7 @@ module Make(App : App) = struct
         | Ok notify_completion ->
           Lwt.catch (fun () ->
               let open Lwt_io in
-              let upload_dir = upload_dir ~root_dir ~run_id in
+              let upload_dir = upload_dir config ~run_id in
               Unix.mkdir_p upload_dir ; (* FIXME *)
               (* Lwt_unix.mkdir upload_dir 0o755 >>= fun () -> *)
               let file = Filename.concat upload_dir file_id in
@@ -429,17 +441,21 @@ module Make(App : App) = struct
     | _ ->
       return_not_found "Page not found"
 
-  let server ~build_log ~root_dir () =
-    Unix.mkdir_p root_dir ;
+  let server config () =
+    Unix.mkdir_p config.root_dir ;
     let callback _conn req body =
       let uri = Request.uri req in
       let path = uri |> Uri.path |> String.split ~on:'/' |> List.tl_exn in
       let meth = Request.meth req in
-      handler ~build_log ~root_dir meth path body >>= fun { status ; body ; headers } ->
+      handler config meth path body >>= fun { status ; body ; headers } ->
       Server.respond_string ~status ~headers ~body ()
     in
     Server.make ~callback ()
 
-  let start ?(port = 8080) ?(build_log = false) ?(root_dir = "_bistro") () =
-    Server.create ~mode:(`TCP (`Port port)) (server ~build_log ~root_dir ())
+  let start ?(port = 8080) ?(build_log = false) ?(root_dir = "_bistro") ?np ?mem () =
+    let config = {
+      port ; build_log ; np ; mem ; root_dir ;
+    }
+    in
+    Server.create ~mode:(`TCP (`Port port)) (server config ())
 end

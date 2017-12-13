@@ -18,5 +18,7 @@ module Make(App : App) : sig
     ?port:int ->
     ?build_log:bool ->
     ?root_dir:string ->
+    ?np:int ->
+    ?mem:int ->
     unit -> unit Lwt.t
 end
