@@ -107,15 +107,17 @@ let return_sexp conv v =
   in
   return (response `OK ~mime_type:`Text_plain contents)
 
+let dir config path =
+  List.reduce_exn ~f:Filename.concat (config.root_dir :: path)
+
 let upload_dir config ~run_id =
-  List.reduce_exn
-    ~f:Filename.concat
-    [config.root_dir ; "runs" ; run_id ; "uploads"]
+  dir config ["runs" ; run_id ; "uploads"]
 
 let result_dir config ~run_id =
-  List.reduce_exn
-    ~f:Filename.concat
-    [config.root_dir ; "runs" ; run_id ; "res"]
+  dir config ["runs" ; run_id ; "res"]
+
+let bistro_dir config ~run_id =
+  dir config ["runs" ; run_id ; "_bistro"]
 
 module type App = sig
   type input
@@ -292,6 +294,7 @@ module Make(App : App) = struct
           Term.create
             ?np:config.np
             ?mem:config.mem
+            ~bistro_dir:(bistro_dir config ~run_id)
             ~logger:(Logger.tee [ logger run_id ; Console_logger.create ()])
             term >|= function
           | Ok () -> update_run_state run_id Completed
