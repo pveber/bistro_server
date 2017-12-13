@@ -19,6 +19,6 @@ module Make(App : App) : sig
     ?build_log:bool ->
     ?root_dir:string ->
     ?np:int ->
-    ?mem:int ->
+    ?mem:[`GB of int] ->
     unit -> unit Lwt.t
 end

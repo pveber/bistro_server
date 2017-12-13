@@ -13,7 +13,7 @@ type ('a, 'b) result = ('a, 'b) Pervasives.result = Ok of 'a | Error of 'b
 
 type server_config = {
   np : int option ;
-  mem : int option ;
+  mem : [`GB of int] option ;
   build_log : bool ;
   port : int ;
   root_dir : string ;
@@ -289,7 +289,11 @@ module Make(App : App) = struct
           let outdir = result_dir config ~run_id:r.id in
           let term = Repo.to_term ~outdir r.repo in
           (* the logger sets the state to Repo_build *)
-          Term.create ~logger:(Logger.tee [ logger run_id ; Console_logger.create ()]) term >|= function
+          Term.create
+            ?np:config.np
+            ?mem:config.mem
+            ~logger:(Logger.tee [ logger run_id ; Console_logger.create ()])
+            term >|= function
           | Ok () -> update_run_state run_id Completed
           | Error msg -> update_run_state run_id (Errored msg)
         ) ;
