@@ -412,7 +412,7 @@ module Make(App : App) = struct
       )
 
     | `POST, ["run"] ->
-      Cohttp_lwt_body.to_string body >>= fun body ->
+      Cohttp_lwt.Body.to_string body >>= fun body ->
       (
         try
           let req = run_request_of_sexp App.input_of_sexp (Sexp.of_string body) in
@@ -432,7 +432,7 @@ module Make(App : App) = struct
               (* Lwt_unix.mkdir upload_dir 0o755 >>= fun () -> *)
               let file = Filename.concat upload_dir file_id in
               with_file ~mode:output file @@ fun oc ->
-              Cohttp_lwt_body.write_body (write oc) body >>= fun () ->
+              Cohttp_lwt.Body.write_body (write oc) body >>= fun () ->
               notify_completion () ;
               return_text ""
             )

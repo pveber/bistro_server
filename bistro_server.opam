@@ -13,7 +13,7 @@ build: [
 depends: [
   "jbuilder"       {build & >= "1.0+beta8"}
   "bistro"         {>= "0.3.0"}
-  "cohttp"
+  "cohttp"         {>= "1.0.0"}
   "cohttp-lwt-unix"
   "containers"
   "js_of_ocaml"
