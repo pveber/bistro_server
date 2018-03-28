@@ -88,7 +88,7 @@ let br () = Vdom.elt "br" []
 let button ?(a = []) msg label =
   let open Vdom in
   elt "button"
-    ~a:(onclick msg :: attr "type" "button" :: a)
+    ~a:(onclick (fun _ -> msg) :: attr "type" "button" :: a)
     [ Vdom.text label ]
 
 let h2 ?a xs = Vdom.elt ?a "h2" xs
