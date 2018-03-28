@@ -1,5 +1,6 @@
 open Core
 open Bistro.EDSL
+open Bistro_utils
 
 module X = struct
   type input = {
@@ -15,25 +16,12 @@ module X = struct
 
   let title = "App title"
 
-  (* let form = Bistro_server_common.{ *)
-  (*   fields = [ *)
-  (*     ("a", Int_field (Some 42)) ; *)
-  (*     ("b", String_field None) ; *)
-  (*     ("c", Form_field { *)
-  (*         fields = [ *)
-  (*           ("d", String_field (Some "foobar")) ; *)
-  (*           ("e", File_field None) ; *)
-  (*         ] *)
-  (*       }) ; *)
-  (*   ] *)
-  (* } *)
-
   let echo x =
     workflow ~descr:"echo" [
       cmd "echo" ~stdout:dest [ string x ]
     ]
 
-  let derive _ = Bistro_repo.[
+  let derive ~data:_ _ = Repo.[
       [ "a" ] %> echo "a" ;
       [ "b" ] %> echo "b" ;
       [ "c" ; "d" ] %> echo "d" ;
