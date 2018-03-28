@@ -21,8 +21,8 @@ type server_config = {
 
 let digest x =
   Marshal.to_string x []
-  |> Digest.string
-  |> Digest.to_hex
+  |> Md5.digest_string
+  |> Md5.to_hex
 
 let string_of_mime_type = function
   | `Text_plain -> "text/plain; charset=utf-8"
