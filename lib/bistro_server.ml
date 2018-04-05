@@ -292,6 +292,16 @@ module Make(App : App) = struct
             }
           in
           store e
+        | Task_ended (Map_command_result { pass ; step }) ->
+          let e = Build_log_entry.{
+              id = step.id ;
+              descr = step.descr ;
+              status = (
+                if pass then `DONE else `FAILED
+              ) ;
+            }
+          in
+          store e
       method stop = () (* FIXME: should stop modifying run *)
       method wait4shutdown = Lwt.return ()
     end
