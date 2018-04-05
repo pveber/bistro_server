@@ -19,6 +19,35 @@ type server_config = {
   root_dir : string ;
 }
 
+
+(* This [daemonize] function was taken from
+
+   https://github.com/xapi-project/xen-api-libs/
+
+   under the LGPL license.
+*)
+let daemonize () =
+  let open Caml in
+  match Unix.fork () with
+  | 0 ->
+    if Unix.setsid () == -1 then
+      failwith "Unix.setsid failed";
+
+    begin match Unix.fork () with
+      | 0 ->
+        let nullfd = Unix.openfile "/dev/null" [ Unix.O_WRONLY ] 0 in
+        begin try
+            Unix.close Unix.stdin;
+            Unix.dup2 nullfd Unix.stdout;
+            Unix.dup2 nullfd Unix.stderr;
+          with exn -> Unix.close nullfd; raise exn
+        end;
+        Unix.close nullfd
+      | _ -> exit 0
+    end
+  | _ -> exit 0
+
+
 let digest x =
   Marshal.to_string x []
   |> Md5.digest_string
@@ -459,10 +488,11 @@ module Make(App : App) = struct
     in
     Server.make ~callback ()
 
-  let start ?(port = 8080) ?(build_log = false) ?(root_dir = "_bistro") ?np ?mem () =
+  let start ?(port = 8080) ?(build_log = false) ?(root_dir = "_bistro") ?np ?mem ?(daemon = false) () =
     let config = {
       port ; build_log ; np ; mem ; root_dir ;
     }
     in
+    if daemon then daemonize () ;
     Server.create ~mode:(`TCP (`Port port)) (server config ())
 end
