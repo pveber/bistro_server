@@ -379,7 +379,7 @@ module Make(App : App) = struct
               | ".." -> rel_path <> []
               | _ -> true
             )
-          >|= List.sort ~cmp:String.compare
+          >|= List.sort ~compare:String.compare
           >|= List.map ~f:(fun fn ->
               let path = string_of_path @@ "/run" :: run.id :: rel_path @ [ fn ] in
               tr [ td [ a ~a:[a_href path] [ pcdata fn ] ] ]

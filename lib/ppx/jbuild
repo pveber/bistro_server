@@ -5,8 +5,8 @@
   (public_name bistro_server.ppx)
   (kind ppx_deriver)
   (modules (ppx_bistro_form))
-  (libraries (ppx_core ppx_type_conv ppx_metaquot ppx_driver))
-  (preprocess (pps (ppx_metaquot)))
+  (libraries (ppxlib ppx_type_conv core_kernel))
+  (preprocess (pps (ppxlib.metaquot)))
   ))
 
 (executable

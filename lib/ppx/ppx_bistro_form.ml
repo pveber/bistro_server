@@ -1,4 +1,5 @@
-open Ppx_core
+open Core_kernel
+open Ppxlib
 open Ast_builder.Default
 
 let ( @@ ) = Caml.( @@ )
