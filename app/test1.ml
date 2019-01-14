@@ -1,5 +1,5 @@
 open Core
-open Bistro.EDSL
+open Bistro
 open Bistro_utils
 
 module X = struct
@@ -17,7 +17,7 @@ module X = struct
   let title = "App title"
 
   let echo x =
-    workflow ~descr:"echo" [
+    Workflow.shell ~descr:"echo" Shell_dsl.[
       cmd "echo" ~stdout:dest [ string x ]
     ]
 

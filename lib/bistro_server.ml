@@ -74,13 +74,13 @@ let head ~js t =
       if js then [ app_js ] else [] ;
       [
         link ~rel:[`Stylesheet] ~href:"https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0-beta.2/css/bootstrap.min.css" () ;
-        script ~a:[a_src "https://code.jquery.com/jquery-3.2.1.slim.min.js"] (pcdata "") ;
-        script ~a:[a_src "https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.12.3/umd/popper.min.js"] (pcdata "") ;
-        script ~a:[a_src "https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0-beta.2/js/bootstrap.min.js"] (pcdata "") ;
+        script ~a:[a_src "https://code.jquery.com/jquery-3.2.1.slim.min.js"] (txt "") ;
+        script ~a:[a_src "https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.12.3/umd/popper.min.js"] (txt "") ;
+        script ~a:[a_src "https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0-beta.2/js/bootstrap.min.js"] (txt "") ;
       ] ;
     ]
   in
-  head (title (pcdata t)) contents
+  head (title (txt t)) contents
 
 
 let html_page ?(js = true) title contents =
@@ -191,7 +191,7 @@ module Make(App : App) = struct
       App.input run_request ->
       string
     val get_run : string -> run option
-    val get_run_exn : string -> run
+    (* val get_run_exn : string -> run *)
     val get_runs : unit -> run list
 
     val accept_download :
@@ -211,7 +211,7 @@ module Make(App : App) = struct
     let uploads = U.create ()
 
     let get_run id = String.Table.find runs id
-    let get_run_exn id = String.Table.find_exn runs id
+    (* let get_run_exn id = String.Table.find_exn runs id *)
 
     let get_runs () = String.Table.data runs
 
@@ -235,75 +235,75 @@ module Make(App : App) = struct
       | Some (`Started _) -> Error "Already started"
       | Some `Completed -> Error "Already uploaded"
 
-    let logger id = object
+    let logger _id = object
       method event _ _ ev =
-        let store e =
-          let run = get_run_exn id in
-          let build_status = Option.map run.build_status ~f:(fun status ->
-              {
-                status with
-                log = e :: List.filter status.log ~f:Build_log_entry.(fun x ->
-                    x.id <> e.id
-                  ) ;
-                nb_completed_steps =
-                  status.nb_completed_steps + if e.status = `DONE then 1 else 0 ;
-                nb_failed_steps =
-                  status.nb_failed_steps + if e.status = `FAILED then 1 else 0 ;
-              }
-            )
-          in
-          let run = { run with build_status } in
-          String.Table.set runs ~key:id ~data:run
-        in
+        (* let store e =
+         *   let run = get_run_exn id in
+         *   let build_status = Option.map run.build_status ~f:(fun status ->
+         *       {
+         *         status with
+         *         log = e :: List.filter status.log ~f:Build_log_entry.(fun x ->
+         *             x.id <> e.id
+         *           ) ;
+         *         nb_completed_steps =
+         *           status.nb_completed_steps + if e.status = `DONE then 1 else 0 ;
+         *         nb_failed_steps =
+         *           status.nb_failed_steps + if e.status = `FAILED then 1 else 0 ;
+         *       }
+         *     )
+         *   in
+         *   let run = { run with build_status } in
+         *   String.Table.set runs ~key:id ~data:run
+         * in *)
         match ev with
-        | Bistro_engine.Scheduler.Init { needed ; already_done } ->
-          let build_status = Some Build_status.{
-            log = [] ;
-            nb_steps = List.length needed ;
-            nb_completed_steps = List.length already_done ;
-            nb_failed_steps = 0 ;
-          }
-          in
-          update_run_state id Repo_build ;
-          let run = get_run_exn id in
-          String.Table.set runs ~key:id ~data:{ run with build_status }
+        | _ -> ()
+        (* | Bistro_engine.Logger.Init { needed ; already_done } ->
+         *   let build_status = Some Build_status.{
+         *     log = [] ;
+         *     nb_steps = List.length needed ;
+         *     nb_completed_steps = List.length already_done ;
+         *     nb_failed_steps = 0 ;
+         *   }
+         *   in
+         *   update_run_state id Repo_build ;
+         *   let run = get_run_exn id in
+         *   String.Table.set runs ~key:id ~data:{ run with build_status } *)
 
-        | Task_ready _
-        | Task_started ((Input _ | Select _), _)
-        | Task_ended (Input_check _ | Select_check _)
-        | Task_skipped _ -> ()
-        | Task_started (Bistro.Step { id ; descr }, _) ->
-          let e = Build_log_entry.{
-              id ;
-              descr ;
-              status = `STARTED ;
-            }
-          in
-          store e
-        | Task_ended (Step_result { outcome ; step }) ->
-          let e = Build_log_entry.{
-              id = step.id ;
-              descr = step.descr ;
-              status = (
-                match outcome with
-                | `Succeeded -> `DONE
-                | `Failed | `Missing_output -> `FAILED
-              ) ;
-            }
-          in
-          store e
-        | Task_ended (Map_command_result { pass ; step }) ->
-          let e = Build_log_entry.{
-              id = step.id ;
-              descr = step.descr ;
-              status = (
-                if pass then `DONE else `FAILED
-              ) ;
-            }
-          in
-          store e
-      method stop = () (* FIXME: should stop modifying run *)
-      method wait4shutdown = Lwt.return ()
+        (* | Bistro_engine.Logger.Workflow_ready _
+         * | Workflow_started (Input _, _) -> ()
+         * | Workflow_ended (Input_check _ | Select_check _)
+         * | Workflow_skipped _ -> ()
+         * | Workflow_started (Bistro.Step { id ; descr }, _) ->
+         *   let e = Build_log_entry.{
+         *       id ;
+         *       descr ;
+         *       status = `STARTED ;
+         *     }
+         *   in
+         *   store e
+         * | Workflow_ended (Step_result { outcome ; step }) ->
+         *   let e = Build_log_entry.{
+         *       id = step.id ;
+         *       descr = step.descr ;
+         *       status = (
+         *         match outcome with
+         *         | `Succeeded -> `DONE
+         *         | `Failed | `Missing_output -> `FAILED
+         *       ) ;
+         *     }
+         *   in
+         *   store e
+         * | Workflow_ended (Map_command_result { pass ; step }) ->
+         *   let e = Build_log_entry.{
+         *       id = step.id ;
+         *       descr = step.descr ;
+         *       status = (
+         *         if pass then `DONE else `FAILED
+         *       ) ;
+         *     }
+         *   in
+         *   store e *)
+      method stop = Lwt.return () (* FIXME: should stop modifying run *)
     end
 
     let start_run config { input ; files } =
@@ -328,16 +328,20 @@ module Make(App : App) = struct
             )
           |> Lwt.join >>= fun () ->
           let outdir = result_dir config ~run_id:r.id in
-          let term = Repo.to_term ~outdir r.repo in
           (* the logger sets the state to Repo_build *)
-          Term.create
-            ?np:config.np
-            ?mem:config.mem
-            ~bistro_dir:(bistro_dir config ~run_id)
-            ~logger:(Logger.tee [ logger run_id ; Console_logger.create ()])
-            term >|= function
-          | Ok () -> update_run_state run_id Completed
-          | Error msg -> update_run_state run_id (Errored msg)
+          let loggers = [ logger run_id ; Bistro_utils.Console_logger.create ()] in
+          let thread =
+            Bistro_utils.Repo.build
+              ~outdir
+              ?np:config.np
+              ?mem:config.mem
+              ~bistro_dir:(bistro_dir config ~run_id)
+              ~loggers
+              r.repo
+          in
+          Lwt.catch
+            (fun () -> thread >|= fun () -> update_run_state run_id Completed)
+            (fun _ -> update_run_state run_id (Errored "Failure") ; Lwt.return ())
         ) ;
       run_id
 
@@ -348,11 +352,11 @@ module Make(App : App) = struct
   let run_list_summary runs =
     let table =
       table @@ List.map runs ~f:(fun r ->
-          tr [ td [a ~a:[a_href ("run/" ^ r.id)] [pcdata r.id]] ]
+          tr [ td [a ~a:[a_href ("run/" ^ r.id)] [txt r.id]] ]
         )
     in
     html_page ~js:false "Bistro Web Server: list of current runs" [
-      h2 [ pcdata "Current runs" ] ;
+      h2 [ txt "Current runs" ] ;
       table ;
     ]
 
@@ -382,7 +386,7 @@ module Make(App : App) = struct
           >|= List.sort ~compare:String.compare
           >|= List.map ~f:(fun fn ->
               let path = string_of_path @@ "/run" :: run.id :: rel_path @ [ fn ] in
-              tr [ td [ a ~a:[a_href path] [ pcdata fn ] ] ]
+              tr [ td [ a ~a:[a_href path] [ txt fn ] ] ]
             )
           >|= table
         in
@@ -391,7 +395,7 @@ module Make(App : App) = struct
         >|= html_page
         >>= return_html
       | Unix.S_REG -> (
-          let mime_type, download =
+          let mime_type, _download =
             match snd (Filename.split_extension path) with
             | Some "html" -> Some `Text_html, false
             | _ -> None, true
@@ -411,18 +415,11 @@ module Make(App : App) = struct
       run.state
       |> sexp_of_run_state
       |> Sexplib.Sexp.to_string_hum
-      |> (fun x -> [ pcdata x ])
+      |> (fun x -> [ txt x ])
       |> html_page
       |> return_html
     | Errored msg ->
       return_text msg
-
-  let get_build_status run_id =
-    match (State.get_run_exn run_id).build_status with
-    | Some status ->
-      return_sexp Build_status.sexp_of_t status
-    | None -> return_not_found "no build status" (* FIXME *)
-
 
   let handler config meth path body =
     match meth, path with
@@ -441,7 +438,10 @@ module Make(App : App) = struct
     | `GET, "run" :: "log" :: run_id :: [] -> (
         match State.get_run run_id with
         | None -> return_not_found "Unknown run"
-        | Some run -> get_build_status run_id
+        | Some { build_status = Some s ; _ } ->
+          return_sexp Build_status.sexp_of_t s
+        | Some { build_status = None ; _ } ->
+          return_not_found "no build status" (* FIXME *)
       )
 
     | `GET, "run" :: run_id :: path -> (

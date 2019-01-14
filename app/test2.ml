@@ -1,6 +1,6 @@
 open Sexplib.Std
-open Bistro.EDSL
-open Bistro_bioinfo.Std
+open Bistro
+open Bistro_bioinfo
 open Bistro_utils
 
 module NGS_QC = struct
@@ -13,7 +13,7 @@ module NGS_QC = struct
   let title = "NGS_QC"
 
   let derive ~data i = Repo.[
-      [ i.sample_id ] %> FastQC.run (input (data i.sample_file)) ;
+      [ i.sample_id ] %> FastQC.run (Workflow.input (data i.sample_file)) ;
     ]
 
 end

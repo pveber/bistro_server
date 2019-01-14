@@ -4,6 +4,7 @@
  ((name bistro_server)
   (public_name bistro_server)
   (libraries (bistro_server_common bistro.utils cohttp.lwt core tyxml))
+  (flags (:standard -short-paths))
   (preprocess (pps (ppx_bistro_form ppx_sexp_conv)))))
 
 (rule
