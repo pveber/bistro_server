@@ -2,9 +2,7 @@ open Core_kernel
 open Ppxlib
 open Ast_builder.Default
 
-let ( @@ ) = Caml.( @@ )
-
-module Type_conv = Ppx_type_conv.Std.Type_conv
+let extension_name = "bistro_form"
 
 module Attrs = struct
   let file =
@@ -58,15 +56,14 @@ module Str = struct
     let body = form_expr_of_td loc td in
     value_binding ~loc ~pat ~expr:body
 
-  let form_of_tds ~loc ~path:_ (rec_flag, tds) =
+  let generator ~loc ~path:_ (_, tds) =
     let bindings = List.map tds ~f:form_of_td in
-    pstr_value_list ~loc rec_flag bindings
-
+    pstr_value_list ~loc Nonrecursive bindings
 end
 
 module Sig = struct
 
-  let form_of_tds ~loc:_ ~path:_ (_, tds) =
+  let generator ~loc:_ ~path:_ (_, tds) =
     List.map tds ~f:(fun td ->
         let loc = td.ptype_loc in
         psig_value ~loc @@ value_description ~loc
@@ -77,11 +74,13 @@ module Sig = struct
 end
 
 let str_type_decl =
-  Type_conv.Generator.make_noarg Str.form_of_tds ~attributes:[
-    Attribute.T Attrs.file
-  ]
+  Deriving.Generator.make_noarg ~attributes:[ Attribute.T Attrs.file ] Str.generator
 
 let sig_type_decl =
-  Type_conv.Generator.make_noarg Sig.form_of_tds ~attributes:[]
+  Deriving.Generator.make_noarg Sig.generator
 
-let _bistro_form = Type_conv.add "bistro_form" ~str_type_decl ~sig_type_decl
+let bistro_form =
+  Deriving.add
+    ~str_type_decl
+    ~sig_type_decl
+    extension_name
